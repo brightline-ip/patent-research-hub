@@ -1,0 +1,242 @@
+{
+  "id": "patent-research-examiner-bigquery-core",
+  "name": "Patent Research — PatEx examiner dry run (callable tool)",
+  "active": false,
+  "nodes": [
+    {
+      "id": "6f21dd90-dc76-4143-9cc0-1c15e667fcc6",
+      "name": "When Called by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -700,
+        0
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "7e5ef070-0c1a-467e-b3c6-07d01211cf02",
+      "name": "Capped Sandbox Policy",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -470,
+        0
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "19be4326-71dc-4f0d-9ca2-d316b0097b00",
+              "name": "projectId",
+              "type": "string",
+              "value": "REPLACE_WITH_YOUR_PROJECT_ID"
+            },
+            {
+              "id": "413f8f37-c031-4986-8062-409863e6c7eb",
+              "name": "executionEnabled",
+              "type": "boolean",
+              "value": false
+            },
+            {
+              "id": "487fe944-9f20-4016-8a47-a0335b32b43c",
+              "name": "billingMode",
+              "type": "string",
+              "value": "sandbox-no-billing"
+            },
+            {
+              "id": "044360db-9075-4255-a70a-99d6a1e681a9",
+              "name": "maximumBytesBilled",
+              "type": "string",
+              "value": "26843545600"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "187b8f02-cff1-42f0-b67f-ce4683a4521a",
+      "name": "Build Fixed PatEx Examiner Dry Run",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -220,
+        0
+      ],
+      "parameters": {
+        "jsCode": "\nconst j=$input.first().json,b=j.body||j;\nif(j.executionEnabled!==false||j.billingMode!=='sandbox-no-billing')throw new Error('PatEx sandbox policy mismatch');\nif(!/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(j.projectId))throw new Error('Set the isolated Google Cloud project ID');\nif(!['examiner','art-unit'].includes(b.scope))throw new Error('Scope must be examiner or art-unit');\nconst from=Number(b.from),to=Number(b.to);if(!Number.isInteger(from)||!Number.isInteger(to)||from<1900||to>new Date().getUTCFullYear()+1||from>to||to-from>30)throw new Error('Invalid year range');\nlet value;if(b.scope==='examiner'){value=String(b.value||b.examiner||'').trim().replace(/\\s+/g,' ').toUpperCase();if(value.length<3||value.length>120||!/^[\\p{L}\\p{N} .,'’-]+$/u.test(value))throw new Error('Supply the exact PatEx examiner name');}else{value=String(b.value||b.artUnit||'').trim();if(!/^\\d{4}$/.test(value))throw new Error('Art unit must contain four digits');}\nconst query=\"\\nWITH raw AS (\\n  SELECT application_number, examiner_name_last, examiner_name_first, examiner_name_middle, examiner_id, examiner_art_unit, disposal_type,\\n    COALESCE(SAFE.PARSE_DATE('%Y-%m-%d', filing_date), SAFE.PARSE_DATE('%Y%m%d', filing_date), SAFE.PARSE_DATE('%m/%d/%Y', filing_date)) AS filing_date_parsed,\\n    COALESCE(SAFE.PARSE_DATE('%Y-%m-%d', patent_issue_date), SAFE.PARSE_DATE('%Y%m%d', patent_issue_date), SAFE.PARSE_DATE('%m/%d/%Y', patent_issue_date)) AS patent_issue_date_parsed,\\n    COALESCE(SAFE.PARSE_DATE('%Y-%m-%d', abandon_date), SAFE.PARSE_DATE('%Y%m%d', abandon_date), SAFE.PARSE_DATE('%m/%d/%Y', abandon_date)) AS abandon_date_parsed\\n  FROM `patents-public-data.uspto_oce_pair.application_data`\\n  WHERE application_type = 'REGULAR' AND invention_subject_matter = 'UTL'\\n),\\neligible AS (\\n  SELECT * EXCEPT(filing_date_parsed, patent_issue_date_parsed, abandon_date_parsed),\\n    IF(filing_date_parsed BETWEEN DATE '1900-01-01' AND @data_cutoff, filing_date_parsed, NULL) AS filing_date,\\n    IF(patent_issue_date_parsed BETWEEN DATE '1900-01-01' AND @data_cutoff, patent_issue_date_parsed, NULL) AS patent_issue_date,\\n    IF(abandon_date_parsed BETWEEN DATE '1900-01-01' AND @data_cutoff, abandon_date_parsed, NULL) AS abandon_date,\\n    COUNTIF(filing_date_parsed IS NOT NULL AND NOT (filing_date_parsed BETWEEN DATE '1900-01-01' AND @data_cutoff)) OVER () AS invalid_filing_dates,\\n    COUNTIF(patent_issue_date_parsed IS NOT NULL AND NOT (patent_issue_date_parsed BETWEEN DATE '1900-01-01' AND @data_cutoff)) OVER () AS invalid_issue_dates,\\n    COUNTIF(abandon_date_parsed IS NOT NULL AND NOT (abandon_date_parsed BETWEEN DATE '1900-01-01' AND @data_cutoff)) OVER () AS invalid_abandon_dates\\n  FROM raw\\n),\\nbounds AS (\\n  SELECT MAX(filing_date) AS max_filing_date, MAX(COALESCE(patent_issue_date, abandon_date)) AS max_disposal_date,\\n    MAX(invalid_filing_dates) AS invalid_filing_dates, MAX(invalid_issue_dates) AS invalid_issue_dates, MAX(invalid_abandon_dates) AS invalid_abandon_dates FROM eligible\\n),\\nscoped AS (\\n  SELECT application_number, disposal_type,\\n    CASE WHEN disposal_type = 'ISS' THEN EXTRACT(YEAR FROM patent_issue_date) WHEN disposal_type = 'ABN' THEN EXTRACT(YEAR FROM abandon_date) END AS disposal_year\\n  FROM eligible\\n  WHERE disposal_type IN ('ISS', 'ABN')\\n    AND ((@scope_type = 'examiner' AND UPPER(TRIM(REGEXP_REPLACE(CONCAT(COALESCE(examiner_name_last, ''), ', ', COALESCE(examiner_name_first, ''), ' ', COALESCE(examiner_name_middle, '')), r'\\\\s+', ' '))) = @scope_value) OR (@scope_type = 'art-unit' AND TRIM(examiner_art_unit) = @scope_value))\\n),\\nyearly AS (\\n  SELECT disposal_year AS year,\\n    COUNT(DISTINCT IF(disposal_type = 'ISS', application_number, NULL)) AS issued,\\n    COUNT(DISTINCT IF(disposal_type = 'ABN', application_number, NULL)) AS abandoned\\n  FROM scoped WHERE disposal_year BETWEEN @from_year AND @to_year GROUP BY year\\n)\\nSELECT year, COALESCE(issued, 0) AS issued, COALESCE(abandoned, 0) AS abandoned, bounds.max_filing_date, bounds.max_disposal_date,\\n  bounds.invalid_filing_dates, bounds.invalid_issue_dates, bounds.invalid_abandon_dates\\nFROM UNNEST(GENERATE_ARRAY(@from_year, @to_year)) AS year CROSS JOIN bounds LEFT JOIN yearly USING (year) ORDER BY year\";\nconst fixed={query,useLegacySql:false,parameterMode:'NAMED',queryParameters:[{name:'scope_type',parameterType:{type:'STRING'},parameterValue:{value:b.scope}},{name:'scope_value',parameterType:{type:'STRING'},parameterValue:{value}},{name:'from_year',parameterType:{type:'INT64'},parameterValue:{value:String(from)}},{name:'to_year',parameterType:{type:'INT64'},parameterValue:{value:String(to)}},{name:'data_cutoff',parameterType:{type:'DATE'},parameterValue:{value:new Date().toISOString().slice(0,10)}}]};\nconst request={configuration:{dryRun:true,query:fixed}};\nreturn [{json:{url:'https://bigquery.googleapis.com/bigquery/v2/projects/'+j.projectId+'/jobs',metadataUrl:'https://bigquery.googleapis.com/bigquery/v2/projects/patents-public-data/datasets/uspto_oce_pair/tables/application_data',request,maximumBytesBilled:j.maximumBytesBilled}}];"
+      }
+    },
+    {
+      "id": "696510ed-ed36-4954-be53-c76b0451f3cd",
+      "name": "Read hosted PatEx schema for dry run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        20,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.metadataUrl }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleBigQueryOAuth2Api",
+        "options": {
+          "timeout": 180000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "5f6e2f9c-cd97-47e3-9ab7-05d7385158b9",
+      "name": "Attach hosted PatEx schema",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        270,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const r=$input.first().json,b=r.body??r.data??{},built=$('Build Fixed PatEx Examiner Dry Run').first().json,t=b.tableReference,cutoff=new Date(Number(b.lastModifiedTime)).toISOString().slice(0,10),p=built.request.configuration.query.queryParameters.find(x=>x.name==='data_cutoff');if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(cutoff)||!p)throw new Error('Hosted PatEx cutoff could not be derived');p.parameterValue.value=cutoff;return [{json:{...built,tableMetadataStatus:r.statusCode,tableMetadata:{projectId:t?.projectId,datasetId:t?.datasetId,tableId:t?.tableId,lastModifiedTime:b.lastModifiedTime,numRows:b.numRows,numBytes:b.numBytes,schema:(b.schema?.fields||[]).map(f=>({name:f.name,type:f.type,mode:f.mode}))}}}];"
+      }
+    },
+    {
+      "id": "578d97b6-aaf9-43fd-ad8a-1a0fd499efa6",
+      "name": "BigQuery — select dedicated OAuth credential",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        520,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.url }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleBigQueryOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.request }}",
+        "options": {
+          "timeout": 180000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "a700a63c-ec27-41b4-b855-0b0c8cfd099e",
+      "name": "Return PatEx Dry Run Estimate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        790,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const r=$input.first().json,b=r.body??r.data??{},meta=$('Attach hosted PatEx schema').first().json;return [{json:{status:r.statusCode,dryRun:true,executedDataQuery:false,jobReference:b.jobReference,statistics:b.statistics,error:b.error,errors:b.errors,tableMetadataStatus:meta.tableMetadataStatus,tableMetadata:meta.tableMetadata,warning:'This checks the fixed PatEx query and estimated bytes only.'}}];"
+      }
+    }
+  ],
+  "connections": {
+    "When Called by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Capped Sandbox Policy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Capped Sandbox Policy": {
+      "main": [
+        [
+          {
+            "node": "Build Fixed PatEx Examiner Dry Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Fixed PatEx Examiner Dry Run": {
+      "main": [
+        [
+          {
+            "node": "Read hosted PatEx schema for dry run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read hosted PatEx schema for dry run": {
+      "main": [
+        [
+          {
+            "node": "Attach hosted PatEx schema",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attach hosted PatEx schema": {
+      "main": [
+        [
+          {
+            "node": "BigQuery — select dedicated OAuth credential",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BigQuery — select dedicated OAuth credential": {
+      "main": [
+        [
+          {
+            "node": "Return PatEx Dry Run Estimate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionTimeout": 270,
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "none",
+    "saveExecutionProgress": false,
+    "saveManualExecutions": false,
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

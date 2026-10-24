@@ -1,0 +1,99 @@
+{
+  "id": "patent-research-govinfo",
+  "name": "Patent Research — GOVINFO — credential setup required (MCP gateway)",
+  "active": false,
+  "nodes": [
+    {
+      "id": "bb1eae95-0df7-4c3d-a76d-c0b2b1be9fec",
+      "name": "Research Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -650,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "patent-research-govinfo",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "b0fdd490-ac91-4c47-89dc-2278a907f3a4",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_GATEWAY_CREDENTIAL_ID",
+          "name": "Research Gateway - Inbound Header Auth"
+        }
+      }
+    },
+    {
+      "id": "8fd68937-c213-4890-b28e-63966c95ba41",
+      "name": "Call Shared Source Tool",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "patent-research-govinfo-core",
+          "mode": "id"
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "id": "d154062e-badb-41fd-9c30-bc517cbbead8",
+      "name": "Return Result",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        650,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Research Webhook": {
+      "main": [
+        [
+          {
+            "node": "Call Shared Source Tool",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Shared Source Tool": {
+      "main": [
+        [
+          {
+            "node": "Return Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionTimeout": 270,
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "none",
+    "saveExecutionProgress": false,
+    "saveManualExecutions": false,
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

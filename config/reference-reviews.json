@@ -1,0 +1,8 @@
+{
+  "bd8705fc038d87e4fe222a7ea2e4324222c9430e2373fce56826bd2dfa2f8baf": {
+    "blankPages": [5, 19, 123],
+    "reviewedAt": "2026-09-06",
+    "method": "Rendered each entire page with Poppler at 1100 px and visually inspected",
+    "finding": "All three listed pages are visually blank. This review does not audit the remaining pages or alter the original PDF or corpus warnings."
+  }
+}

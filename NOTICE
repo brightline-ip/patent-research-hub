@@ -1,0 +1,15 @@
+Patent Research Hub
+Copyright 2026 Brightline IP
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Third-party components: the npm dependencies listed in package.json and package-lock.json
+(@modelcontextprotocol/sdk, fast-xml-parser, parse5, zod and their transitive dependencies) are
+distributed under their own licenses; optional chart rendering uses matplotlib and the packages in
+requirements.txt under their own licenses.
+
+Data sources: the software retrieves material from third-party providers (USPTO, EPO, GovInfo,
+CourtListener/Free Law Project, Google BigQuery public datasets and others). Each user supplies their
+own credentials and is responsible for complying with each provider's terms of use, rate limits and
+copyright. No provider data, official reference documents or credentials are distributed with this
+software.

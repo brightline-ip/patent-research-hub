@@ -1,0 +1,124 @@
+{
+  "id": "patent-research-patentsview-catalog-core",
+  "name": "Patent Research — PatentsView annual catalog metadata (callable tool)",
+  "active": false,
+  "nodes": [
+    {
+      "id": "pv-catalog-call",
+      "name": "When Called by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -500,
+        0
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "pv-catalog-validate",
+      "name": "Build fixed PVANNUAL catalog request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -250,
+        0
+      ],
+      "parameters": {
+        "jsCode": "throw new Error('PVANNUAL_CATALOG_SCHEMA_UNVERIFIED: verify one authenticated response before enabling this source');"
+      }
+    },
+    {
+      "id": "pv-catalog-request",
+      "name": "Read official PVANNUAL catalog metadata",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.uspto.gov/api/v1/datasets/products/PVANNUAL?fileDataFromDate={{$json.year}}-01-01&fileDataToDate={{$json.year}}-12-31&includeFiles=true",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 25000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_USPTO_CREDENTIAL_ID",
+          "name": "USPTO ODP API Key"
+        }
+      }
+    },
+    {
+      "id": "pv-catalog-pack",
+      "name": "Return bounded catalog metadata",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        250,
+        0
+      ],
+      "parameters": {
+        "jsCode": "throw new Error('PVANNUAL_CATALOG_SCHEMA_UNVERIFIED');"
+      }
+    }
+  ],
+  "connections": {
+    "When Called by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Build fixed PVANNUAL catalog request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build fixed PVANNUAL catalog request": {
+      "main": [
+        [
+          {
+            "node": "Read official PVANNUAL catalog metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read official PVANNUAL catalog metadata": {
+      "main": [
+        [
+          {
+            "node": "Return bounded catalog metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "none",
+    "saveExecutionProgress": false,
+    "saveManualExecutions": false,
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

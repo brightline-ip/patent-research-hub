@@ -1,0 +1,176 @@
+{
+  "id": "patent-research-model",
+  "name": "Patent Research — Models",
+  "active": false,
+  "nodes": [
+    {
+      "id": "2460da5e-5153-4275-ad0c-6a521aa60a2d",
+      "name": "Research Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -650,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "patent-research-model",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "2072c341-a67e-48ec-857a-9744e08d1277",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_GATEWAY_CREDENTIAL_ID",
+          "name": "Research Gateway - Inbound Header Auth"
+        }
+      }
+    },
+    {
+      "id": "de64eb49-4cea-491f-9582-aec8552880b9",
+      "name": "Connection Settings",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -400,
+        0
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f008d7ea-dfcc-49a3-bb1e-37845dbe8cf9",
+              "name": "defaultModel",
+              "value": "gpt-5.4-mini",
+              "type": "string"
+            },
+            {
+              "id": "47d33eb1-cf46-4845-b86c-eefca5e02e19",
+              "name": "allowedModels",
+              "value": "gpt-5.4-mini,gpt-5.4,gpt-5.6-terra",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "77607c86-eba2-4831-ba85-700d112f97ce",
+      "name": "Validate Chat",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -120,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const j=$input.first().json,b=j.body; if(!b||!Array.isArray(b.messages)||JSON.stringify(b).length>1800000)throw new Error('Invalid or oversized chat request'); const allowed=j.allowedModels.split(',').map(s=>s.trim()); const model=b.model||j.defaultModel;if(!allowed.includes(model))throw new Error('Model not enabled in Connection Settings');const keys=['messages','tools','tool_choice','parallel_tool_calls','temperature','top_p','max_completion_tokens','reasoning_effort','response_format','stop','seed'];const request={model,stream:false,store:false};for(const k of keys)if(b[k]!==undefined)request[k]=b[k];if(b.max_tokens!==undefined&&!request.max_completion_tokens)request.max_completion_tokens=b.max_tokens;return [{json:{request}}];"
+      }
+    },
+    {
+      "id": "ddaec826-f4a6-4156-817e-d69daf710de9",
+      "name": "Model Provider — existing OpenAI credential",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        350,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.request }}",
+        "options": {
+          "timeout": 240000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          }
+        }
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "REPLACE_WITH_OPENAI_CREDENTIAL_ID",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "id": "dd319ff2-92ae-429d-bef3-5e390e624318",
+      "name": "Return Result",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        650,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Research Webhook": {
+      "main": [
+        [
+          {
+            "node": "Connection Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Connection Settings": {
+      "main": [
+        [
+          {
+            "node": "Validate Chat",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Chat": {
+      "main": [
+        [
+          {
+            "node": "Model Provider — existing OpenAI credential",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Model Provider — existing OpenAI credential": {
+      "main": [
+        [
+          {
+            "node": "Return Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionTimeout": 270,
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "none",
+    "saveExecutionProgress": false,
+    "saveManualExecutions": false,
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

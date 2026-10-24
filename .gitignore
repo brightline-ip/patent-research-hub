@@ -1,0 +1,32 @@
+# Dependencies and tool caches
+node_modules/
+.npm-cache/
+.venv/
+**/__pycache__/
+*.pyc
+coverage/
+tmp/
+test-output/
+
+# Runtime data, reports and downloaded originals (never commit)
+data/
+exports/
+*.sqlite*
+*.db
+*.bak
+*.log
+
+# Local configuration and secrets
+config.json
+.env
+.env.*
+!.env.example
+*.local.*
+*.pem
+*.key
+*.pfx
+*.p12
+*.crt
+*.dpapi
+*service-account*.json
+*credentials*.json

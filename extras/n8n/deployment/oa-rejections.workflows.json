@@ -1,0 +1,233 @@
+[
+  {
+    "id": "patent-research-oa-rejections-core",
+    "name": "Patent Research - USPTO Office Action Rejections (callable tool)",
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    },
+    "staticData": null,
+    "pinData": null,
+    "meta": null,
+    "nodes": [
+      {
+        "id": "r1",
+        "name": "When Called by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          -650,
+          0
+        ],
+        "parameters": {
+          "inputSource": "passthrough"
+        }
+      },
+      {
+        "id": "r2",
+        "name": "Validate Rejections Request",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -400,
+          0
+        ],
+        "parameters": {
+          "jsCode": "const j=$input.first().json;const b=j.action||j.application_numbers?j:j.body||{};const req=function rejectionsRequest(b){\n const base='https://api.uspto.gov/api/v1/patent/oa/oa_rejections/v2/';\n const action=b?.action??'records';\n if(action==='fields')return {url:base+'fields',method:'GET',body:'',contentType:''};\n if(action!=='records')throw Error('Unsupported action');\n const apps=b?.application_numbers;\n if(!Array.isArray(apps)||apps.length<1||apps.length>100||apps.some(a=>typeof a!=='string'||!/^\\d{8}$/.test(a)))throw Error('Supply 1-100 eight-digit application numbers');\n const field=b.field??'patentApplicationNumber';\n if(!['patentApplicationNumber','applicationNumberText'].includes(field))throw Error('Unsupported application-number field');\n const start=b.start??0,rows=b.rows??100;\n if(!Number.isSafeInteger(start)||start<0||start>1000000||!Number.isSafeInteger(rows)||rows<1||rows>100)throw Error('Invalid paging');\n const criteria=field+':('+[...new Set(apps)].join(' OR ')+')';\n const body='criteria='+encodeURIComponent(criteria)+'&start='+start+'&rows='+rows;\n return {url:base+'records',method:'POST',body,contentType:'application/x-www-form-urlencoded'};\n};return [{json:req(b)}];"
+        }
+      },
+      {
+        "id": "r3",
+        "name": "Provider - USPTO ODP credential",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          -150,
+          0
+        ],
+        "parameters": {
+          "method": "={{ $json.method }}",
+          "url": "={{ $json.url }}",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth",
+          "sendBody": "={{ $json.method === \"POST\" }}",
+          "contentType": "raw",
+          "rawContentType": "={{ $json.contentType || \"application/x-www-form-urlencoded\" }}",
+          "body": "={{ $json.body }}",
+          "options": {
+            "timeout": 60000,
+            "redirect": {
+              "redirect": {
+                "followRedirects": false
+              }
+            },
+            "response": {
+              "response": {
+                "neverError": true
+              }
+            }
+          }
+        },
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "REPLACE_WITH_USPTO_CREDENTIAL_ID",
+            "name": "USPTO ODP API Key"
+          }
+        }
+      },
+      {
+        "id": "r4",
+        "name": "Package Rejections Response",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          100,
+          0
+        ],
+        "parameters": {
+          "jsCode": "const pack=function packageRejectionsResponse(j){\n const body=j&&typeof j==='object'&&!Array.isArray(j)?j:null;\n if(!body)return {text:JSON.stringify({provider_status:null,provider_message:'unrecognized provider response'}),status:502,contentType:'application/json'};\n const code=Number(body.code??body.status);\n const looksError=(Number.isInteger(code)&&code>=400)||(typeof body.error==='string'&&!body.response);\n if(!looksError)return {text:JSON.stringify(body),status:200,contentType:'application/json'};\n const message=['message','detailedMessage','errorDetails','error'].map(k=>body[k]).filter(v=>typeof v==='string').join(' | ').replace(/[\\u0000-\\u001f]/g,' ').slice(0,300);\n return {text:JSON.stringify({provider_status:Number.isInteger(code)?code:null,provider_message:message}),status:Number.isInteger(code)&&code>=400&&code<600?code:502,contentType:'application/json'};\n};return [{json:pack($input.first().json)}];"
+        }
+      }
+    ],
+    "connections": {
+      "When Called by Another Workflow": {
+        "main": [
+          [
+            {
+              "node": "Validate Rejections Request",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Validate Rejections Request": {
+        "main": [
+          [
+            {
+              "node": "Provider - USPTO ODP credential",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Provider - USPTO ODP credential": {
+        "main": [
+          [
+            {
+              "node": "Package Rejections Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    }
+  },
+  {
+    "id": "patent-research-oa-rejections",
+    "name": "Patent Research - USPTO Office Action Rejections (authenticated gateway)",
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    },
+    "staticData": null,
+    "pinData": null,
+    "meta": null,
+    "nodes": [
+      {
+        "id": "g1",
+        "name": "Research Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          -400,
+          0
+        ],
+        "webhookId": "7d0c1a52-6f3e-4b8a-9e21-a0b1c2000001",
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "patent-research-oa-rejections",
+          "authentication": "headerAuth",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "REPLACE_WITH_GATEWAY_CREDENTIAL_ID",
+            "name": "Research Gateway - Inbound Header Auth"
+          }
+        }
+      },
+      {
+        "id": "g2",
+        "name": "Call Shared Source Tool",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.2,
+        "position": [
+          -150,
+          0
+        ],
+        "parameters": {
+          "workflowId": {
+            "__rl": true,
+            "value": "patent-research-oa-rejections-core",
+            "mode": "id"
+          },
+          "mode": "each",
+          "options": {
+            "waitForSubWorkflow": true
+          }
+        }
+      },
+      {
+        "id": "g3",
+        "name": "Return Result",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.4,
+        "position": [
+          100,
+          0
+        ],
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json }}",
+          "options": {}
+        }
+      }
+    ],
+    "connections": {
+      "Research Webhook": {
+        "main": [
+          [
+            {
+              "node": "Call Shared Source Tool",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Call Shared Source Tool": {
+        "main": [
+          [
+            {
+              "node": "Return Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    }
+  }
+]

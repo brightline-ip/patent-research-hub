@@ -1,0 +1,45 @@
+{
+  "transport": "direct",
+  "dataDir": "",
+  "exportsDir": "",
+  "requestTimeoutMs": 25000,
+  "directMinIntervalMs": {
+    "uspto": 1000,
+    "epo": 1000,
+    "govinfo": 3600,
+    "courtlistener": 1000,
+    "bigquery": 1000,
+    "public": 1000
+  },
+  "maxRequestsPerHour": {
+    "uspto": 120,
+    "epo": 120,
+    "govinfo": 120,
+    "courtlistener": 120,
+    "bigquery": 120
+  },
+
+  "courtlistenerEnabled": false,
+  "courtlistenerInternalUseAllowed": false,
+
+  "googleBigQueryProjectId": "",
+  "googleBigQueryDryRunEnabled": true,
+  "googleBigQueryExecutionEnabled": false,
+  "googleBigQueryBillingMode": "disabled",
+  "googleBigQueryPerQueryMaxBytes": "26843545600",
+  "googleBigQueryMonthlyTrackedMaxBytes": "274877906944",
+
+  "ptabOriginalsEnabled": true,
+  "patentDocumentsEnabled": true,
+  "patentDocumentOriginalsEnabled": true,
+  "corpusIntakeRoot": "",
+
+  "getFilesClientModule": "",
+  "corpusClientModule": "",
+  "pythonExecutable": "",
+
+  "n8nBaseUrl": "http://127.0.0.1:5678",
+  "gatewayAuthFile": "",
+  "referenceGatewayEnabled": false,
+  "modelProxyPort": 8769
+}

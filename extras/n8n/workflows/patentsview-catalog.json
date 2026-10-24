@@ -1,0 +1,98 @@
+{
+  "id": "patent-research-patentsview-catalog",
+  "name": "Patent Research — PatentsView annual catalog metadata (gateway)",
+  "active": false,
+  "nodes": [
+    {
+      "id": "pv-catalog-webhook",
+      "name": "Research Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -450,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "patent-research-patentsview-catalog",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_GATEWAY_CREDENTIAL_ID",
+          "name": "Research Gateway - Inbound Header Auth"
+        }
+      }
+    },
+    {
+      "id": "pv-catalog-execute",
+      "name": "Call PatentsView catalog source",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        -100,
+        0
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "patent-research-patentsview-catalog-core",
+          "mode": "id"
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "id": "pv-catalog-respond",
+      "name": "Return Result",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        250,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Research Webhook": {
+      "main": [
+        [
+          {
+            "node": "Call PatentsView catalog source",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call PatentsView catalog source": {
+      "main": [
+        [
+          {
+            "node": "Return Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "none",
+    "saveExecutionProgress": false,
+    "saveManualExecutions": false,
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

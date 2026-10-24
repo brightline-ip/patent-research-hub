@@ -1,0 +1,493 @@
+{
+  "schemaVersion": 1,
+  "checkedAt": "2026-09-06",
+  "defaultPolling": "weekly",
+  "policy": "Immutable source snapshots. A hash proves byte identity, not legal applicability or currency. Subsequent updates are candidates; existing pins are not overwritten.",
+  "references": [
+    {
+      "id": "usc35",
+      "family": "usc35",
+      "title": "USPTO Consolidated Patent Laws — Title 35",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/consolidated_laws.pdf",
+      "authority": "official-statutory-compilation",
+      "edition": "Current as of July 18, 2025 per publisher",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "cfr37",
+      "family": "cfr37",
+      "title": "USPTO Consolidated Patent Rules — 37 CFR patent practice",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/consolidated_rules.pdf",
+      "authority": "official-regulatory-compilation",
+      "edition": "Current as of July 20, 2026 per publisher",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "subsequent-publications",
+      "family": "guidance",
+      "title": "subsequent publications",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/subsequent-publications.pdf",
+      "authority": "official-guidance",
+      "edition": "See dated source document",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-revised-design-fp-14jan2025",
+      "family": "guidance",
+      "title": "mpep revised design fp 14jan2025",
+      "url": "https://www.uspto.gov/sites/default/files/documents/mpep_revised_design_fp_14jan2025.pdf",
+      "authority": "official-guidance",
+      "edition": "See dated source document",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "advance-notice-fp-17jan2025",
+      "family": "guidance",
+      "title": "advance notice fp 17jan2025",
+      "url": "https://www.uspto.gov/sites/default/files/documents/advance_notice_fp_17jan2025.pdf",
+      "authority": "official-guidance",
+      "edition": "See dated source document",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-similarity-search",
+      "family": "guidance",
+      "title": "MPEP similarity search",
+      "url": "https://www.uspto.gov/sites/default/files/documents/MPEP-similarity-search.pdf",
+      "authority": "official-guidance",
+      "edition": "See dated source document",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-certificate-entity-status",
+      "family": "guidance",
+      "title": "MPEP certificate entity status",
+      "url": "https://www.uspto.gov/sites/default/files/documents/MPEP-certificate-entity-status.pdf",
+      "authority": "official-guidance",
+      "edition": "See dated source document",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "anc-desjardins-memo-12-5-25",
+      "family": "guidance",
+      "title": "ANC Desjardins Memo 12 5 25",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/ANC-Desjardins-Memo-12-5-25.pdf",
+      "authority": "official-guidance",
+      "edition": "See dated source document",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-0005-change-summary",
+      "family": "mpep",
+      "title": "mpep 0005 change summary",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-0005-change-summary.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-0010-title-page",
+      "family": "mpep",
+      "title": "mpep 0010 title page",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-0010-title-page.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-0015-foreword",
+      "family": "mpep",
+      "title": "mpep 0015 foreword",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-0015-foreword.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-0020-introduction",
+      "family": "mpep",
+      "title": "mpep 0020 introduction",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-0020-introduction.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-0000-table-of-contents",
+      "family": "mpep",
+      "title": "mpep 0000 table of contents",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-0000-table-of-contents.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-100",
+      "family": "mpep",
+      "title": "MPEP Chapter 100",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-0100.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-200",
+      "family": "mpep",
+      "title": "MPEP Chapter 200",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-0200.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-300",
+      "family": "mpep",
+      "title": "MPEP Chapter 300",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-0300.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-400",
+      "family": "mpep",
+      "title": "MPEP Chapter 400",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-0400.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-500",
+      "family": "mpep",
+      "title": "MPEP Chapter 500",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-0500.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-600",
+      "family": "mpep",
+      "title": "MPEP Chapter 600",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-0600.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-700",
+      "family": "mpep",
+      "title": "MPEP Chapter 700",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-0700.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-800",
+      "family": "mpep",
+      "title": "MPEP Chapter 800",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-0800.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-900",
+      "family": "mpep",
+      "title": "MPEP Chapter 900",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-0900.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-1000",
+      "family": "mpep",
+      "title": "MPEP Chapter 1000",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-1000.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-1100",
+      "family": "mpep",
+      "title": "MPEP Chapter 1100",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-1100.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-1200",
+      "family": "mpep",
+      "title": "MPEP Chapter 1200",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-1200.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-1300",
+      "family": "mpep",
+      "title": "MPEP Chapter 1300",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-1300.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-1400",
+      "family": "mpep",
+      "title": "MPEP Chapter 1400",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-1400.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-1500",
+      "family": "mpep",
+      "title": "MPEP Chapter 1500",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-1500.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-1600",
+      "family": "mpep",
+      "title": "MPEP Chapter 1600",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-1600.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-1700",
+      "family": "mpep",
+      "title": "MPEP Chapter 1700",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-1700.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-1800",
+      "family": "mpep",
+      "title": "MPEP Chapter 1800",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-1800.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-1900",
+      "family": "mpep",
+      "title": "MPEP Chapter 1900",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-1900.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-2000",
+      "family": "mpep",
+      "title": "MPEP Chapter 2000",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-2000.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-2100",
+      "family": "mpep",
+      "title": "MPEP Chapter 2100",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-2100.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-2200",
+      "family": "mpep",
+      "title": "MPEP Chapter 2200",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-2200.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-2300",
+      "family": "mpep",
+      "title": "MPEP Chapter 2300",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-2300.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-2400",
+      "family": "mpep",
+      "title": "MPEP Chapter 2400",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-2400.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-2500",
+      "family": "mpep",
+      "title": "MPEP Chapter 2500",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-2500.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-2600",
+      "family": "mpep",
+      "title": "MPEP Chapter 2600",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-2600.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-2700",
+      "family": "mpep",
+      "title": "MPEP Chapter 2700",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-2700.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-2800",
+      "family": "mpep",
+      "title": "MPEP Chapter 2800",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-2800.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-2900",
+      "family": "mpep",
+      "title": "MPEP Chapter 2900",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-2900.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-9005-appx-i",
+      "family": "mpep",
+      "title": "mpep 9005 appx i",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-9005-appx-i.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-9010-appx-ii",
+      "family": "mpep",
+      "title": "mpep 9010 appx ii",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-9010-appx-ii.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-9015-appx-l",
+      "family": "mpep",
+      "title": "mpep 9015 appx l",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-9015-appx-l.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-9020-appx-r",
+      "family": "mpep",
+      "title": "mpep 9020 appx r",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-9020-appx-r.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-9025-appx-t",
+      "family": "mpep",
+      "title": "mpep 9025 appx t",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-9025-appx-t.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-9030-appx-ai",
+      "family": "mpep",
+      "title": "mpep 9030 appx ai",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-9030-appx-ai.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-9035-appx-p",
+      "family": "mpep",
+      "title": "mpep 9035 appx p",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-9035-appx-p.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-9090-subject-matter-index",
+      "family": "mpep",
+      "title": "mpep 9090 subject matter index",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-9090-subject-matter-index.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "mpep-9095-form-paragraph-chapter",
+      "family": "mpep",
+      "title": "mpep 9095 Form Paragraph Chapter",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/mpep-9095-Form-Paragraph-Chapter.pdf",
+      "authority": "official-guidance",
+      "edition": "Ninth edition, Rev. 01.2024; individual sections may retain older revision dates",
+      "discoveryUrl": "https://www.uspto.gov/web/offices/pac/mpep/index.html"
+    },
+    {
+      "id": "frcp",
+      "family": "frcp",
+      "title": "Federal Rules of Civil Procedure — December 1, 2025",
+      "url": "https://www.uscourts.gov/sites/default/files/document/federal-rules-of-civil-procedure.pdf",
+      "authority": "official-court-rules",
+      "edition": "Amended to December 1, 2025",
+      "discoveryUrl": "https://www.uscourts.gov/forms-rules/current-rules-practice-procedure/federal-rules-civil-procedure"
+    }
+  ],
+  "monitors": [
+    {
+      "id": "mpep-index",
+      "url": "https://www.uspto.gov/web/offices/pac/mpep/index.html",
+      "title": "Current MPEP and updates"
+    },
+    {
+      "id": "frcp-index",
+      "url": "https://www.uscourts.gov/forms-rules/current-rules-practice-procedure/federal-rules-civil-procedure",
+      "title": "Current FRCP index"
+    },
+    {
+      "id": "patent-guidance",
+      "url": "https://www.uspto.gov/patents/laws/patent-legal-administration",
+      "title": "Patent legal administration and guidance"
+    }
+  ]
+}

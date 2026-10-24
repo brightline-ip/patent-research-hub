@@ -1,0 +1,127 @@
+{
+  "id": "patent-research-application-documents-core",
+  "name": "Patent Research — Application documents (callable tool)",
+  "description": null,
+  "active": false,
+  "nodes": [
+    {
+      "id": "696feb2c-90bf-49a5-af66-f55e019c3d42",
+      "name": "When Called",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -600,
+        0
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "39c7e786-d4e5-44a1-a674-ae94a95c6c86",
+      "name": "Validate Application",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -300,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const j=$input.first().json;const b=j.application_number?j:j.body||{};if(!/^\\d{8}$/.test(b.application_number||''))throw Error('Public US application number must contain eight digits');return [{json:{application_number:b.application_number,url:'https://api.uspto.gov/api/v1/patent/applications/'+b.application_number+'/documents'}}];"
+      }
+    },
+    {
+      "id": "0446684b-c63d-4b87-84f4-500344e6f790",
+      "name": "Read Official Document List",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 60000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "responseFormat": "json",
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_USPTO_CREDENTIAL_ID",
+          "name": "USPTO ODP API Key"
+        }
+      }
+    },
+    {
+      "id": "9fedbc60-28e6-45cd-b0f3-6fcaae78f0f8",
+      "name": "Package Document List",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        300,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const r=$input.first().json;if(r.statusCode!==200)throw Error('USPTO document list HTTP '+Number(r.statusCode||0));return [{json:{application_number:$('Validate Application').first().json.application_number,source_url:$('Validate Application').first().json.url,retrieved_at:new Date().toISOString(),status:200,body:r.body}}];"
+      }
+    }
+  ],
+  "connections": {
+    "When Called": {
+      "main": [
+        [
+          {
+            "node": "Validate Application",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Application": {
+      "main": [
+        [
+          {
+            "node": "Read Official Document List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Official Document List": {
+      "main": [
+        [
+          {
+            "node": "Package Document List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionTimeout": 270,
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "none",
+    "saveExecutionProgress": false,
+    "saveManualExecutions": false,
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

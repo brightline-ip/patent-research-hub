@@ -1,0 +1,181 @@
+[
+  {
+    "id": "patent-research-ptab-files-core",
+    "name": "Patent Research — PTAB original PDFs (callable tool)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "af9b5849-7ba4-45d0-9aba-d4f534d48b15",
+        "name": "When Called by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          -450,
+          0
+        ],
+        "parameters": {
+          "inputSource": "passthrough"
+        }
+      },
+      {
+        "id": "691c8c31-3124-4afb-ba04-5e9c4a82aa03",
+        "name": "Stream and Verify PTAB Original",
+        "type": "n8n-nodes-patent-research.usptoOriginal",
+        "typeVersion": 1,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "operation": "ptab",
+          "trialNumber": "={{ $json.trialNumber || $json.body?.trialNumber }}",
+          "appealNumber": "={{ $json.appealNumber || $json.body?.appealNumber }}",
+          "documentIdentifier": "={{ $json.documentIdentifier || $json.body?.documentIdentifier }}",
+          "maxBytes": 10485760,
+          "timeoutMs": 60000
+        },
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "REPLACE_WITH_USPTO_CREDENTIAL_ID",
+            "name": "USPTO ODP API Key"
+          }
+        }
+      },
+      {
+        "id": "1a35661b-b583-470f-9987-8604c622863d",
+        "name": "Streaming Boundary",
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          -50,
+          260
+        ],
+        "parameters": {
+          "width": 800,
+          "height": 230,
+          "content": "## Reviewed streaming PTAB original connector\nInstall the local n8n node package before publishing this workflow. The node derives the exact trial/appeal URL from identity fields, keeps the API key on the authorization request, validates one exact signed redirect, caps bytes while streaming, checks MIME/length/PDF signature, pins public provider DNS, applies one 60-second deadline, and allows two in-flight originals per process. Signed URLs never become outputs."
+        }
+      }
+    ],
+    "connections": {
+      "When Called by Another Workflow": {
+        "main": [
+          [
+            {
+              "node": "Stream and Verify PTAB Original",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  },
+  {
+    "id": "patent-research-ptab-files",
+    "name": "Patent Research — PTAB original PDFs (MCP gateway)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "38c7698e-efa9-4e08-b5a5-63759443f369",
+        "name": "Research Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          -650,
+          0
+        ],
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "patent-research-ptab-files",
+          "authentication": "headerAuth",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "webhookId": "bdb7e47a-d33a-4a68-98c3-dacbb9e1aed9",
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "REPLACE_WITH_GATEWAY_CREDENTIAL_ID",
+            "name": "Research Gateway - Inbound Header Auth"
+          }
+        }
+      },
+      {
+        "id": "85c35e8a-7659-4012-a6cb-8f05597bb36f",
+        "name": "Call Shared Source Tool",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "workflowId": {
+            "__rl": true,
+            "value": "patent-research-ptab-files-core",
+            "mode": "id"
+          },
+          "mode": "each",
+          "options": {
+            "waitForSubWorkflow": true
+          }
+        }
+      },
+      {
+        "id": "2917c563-0591-4d46-878a-f437b56da7cb",
+        "name": "Return Result",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.4,
+        "position": [
+          650,
+          0
+        ],
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json }}",
+          "options": {}
+        }
+      }
+    ],
+    "connections": {
+      "Research Webhook": {
+        "main": [
+          [
+            {
+              "node": "Call Shared Source Tool",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Call Shared Source Tool": {
+        "main": [
+          [
+            {
+              "node": "Return Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  }
+]

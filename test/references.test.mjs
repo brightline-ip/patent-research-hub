@@ -1,0 +1,157 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import vm from 'node:vm';
+import {createHash} from 'node:crypto';
+import {Hub} from '../src/hub.mjs';
+import {ReferenceLibrary,validateReferenceUrl,monitorContent,blankPageReview} from '../src/references.mjs';
+import {externalAccess} from '../src/external-access.mjs';
+import {estimateBigQuery,validateBigQueryEstimate,validateBigQueryTrend,queryBigQueryTrend,bigQuerySourceStatus} from '../src/bigquery.mjs';
+import {buildExaminerPlan,estimateExaminer,normalizeExaminerInput,queryExaminerTrend,validateExaminerEstimate,validateExaminerTrend,examinerSourceStatus} from '../src/examiner.mjs';
+const hash=x=>createHash('sha256').update(x).digest('hex');
+test('Provider access preserves query boundaries and does not claim live database access',()=>{
+ const q='G06N & before:2025';const link=externalAccess({source:'google-patents',query:q});assert.equal(new URL(link.url).searchParams.get('q'),q);assert.equal(link.retrieved,false);
+ const result=vm.runInNewContext('('+externalAccess.toString()+')({source:"google-patents",query:"G06N"})');assert.match(result.url,/q=G06N/);
+ assert.throws(()=>externalAccess({source:'google-patents',publication:'US1/../../key'}));
+ assert.equal(externalAccess({source:'patentbots'}).automaticPolling,false);
+ const fpo=externalAccess({source:'freepatentsonline',query:q});assert.equal(new URL(fpo.url).searchParams.get('query_txt'),q);assert.equal(fpo.automaticPolling,false);assert.equal(fpo.retrieved,false);
+ const wipo=externalAccess({source:'wipo-patentscope',query:q});assert.equal(wipo.searchFor,q);assert.equal(wipo.automaticPolling,false);assert.equal(wipo.retrieved,false);
+ const plan=externalAccess({source:'google-bigquery',cpc:'G06N',from:2020,to:2025});assert.equal(plan.connected,false);assert.equal(plan.request.configuration.dryRun,true);assert.equal('maximumBytesBilled' in plan.request.configuration.query,false);assert.match(plan.request.configuration.query.query,/EXISTS/);assert.match(plan.request.configuration.query.query,/COUNT\(DISTINCT publication_number\)/);assert.throws(()=>externalAccess({source:'google-bigquery',cpc:'G06N;DROP TABLE x'}));
+});
+test('Generated BigQuery workflow keeps callable and manual paths dry-run only and portable',()=>{
+ const w=JSON.parse(fs.readFileSync(new URL('../extras/n8n/workflows/google-bigquery-core.json',import.meta.url),'utf8'));
+ assert.equal(w.active,false);
+ const names=new Set(w.nodes.map(n=>n.name));
+ for(const name of ['When Called by Another Workflow','Manual Dry Run','Manual Test Parameters','Google Cloud Connection Settings','Build Fixed CPC Dry Run','BigQuery — select dedicated OAuth credential','Return Dry Run Estimate'])assert.equal(names.has(name),true);
+ const sample=w.nodes.find(n=>n.name==='Manual Test Parameters').parameters.assignments.assignments;
+ assert.deepEqual(Object.fromEntries(sample.map(x=>[x.name,x.value])),{cpc:'G06N',from:2024,to:2024});
+ const settings=w.nodes.find(n=>n.name==='Google Cloud Connection Settings').parameters.assignments.assignments;
+ assert.equal(settings.find(x=>x.name==='executionEnabled').value,false);
+ const build=w.nodes.find(n=>n.name==='Build Fixed CPC Dry Run').parameters.jsCode;
+ assert.match(build,/dryRun!==true/);
+ assert.match(build,/executionEnabled!==false/);
+ assert.equal(w.connections['When Called by Another Workflow'].main[0][0].node,'Google Cloud Connection Settings');
+ assert.equal(w.connections['Manual Dry Run'].main[0][0].node,'Manual Test Parameters');
+ assert.equal(w.nodes.some(n=>'credentials' in n),false);
+ const gateway=JSON.parse(fs.readFileSync(new URL('../extras/n8n/workflows/google-bigquery.json',import.meta.url),'utf8'));
+ assert.equal(gateway.active,false);
+ assert.equal(gateway.nodes.find(n=>n.type.endsWith('.webhook')).parameters.path,'patent-research-google-bigquery');
+ assert.equal(gateway.nodes.find(n=>n.type.endsWith('.webhook')).parameters.authentication,'headerAuth');
+ assert.equal(gateway.nodes.find(n=>n.type.endsWith('.executeWorkflow')).parameters.workflowId.value,w.id);
+ const query=JSON.parse(fs.readFileSync(new URL('../extras/n8n/workflows/google-bigquery-query-core.json',import.meta.url),'utf8'));
+ assert.equal(query.active,false);assert.equal(query.nodes.some(n=>n.type.endsWith('.manualTrigger')),false);assert.equal(query.nodes.some(n=>'credentials' in n),false);
+ const policy=query.nodes.find(n=>n.name==='Capped Sandbox Policy').parameters.assignments.assignments;
+ assert.deepEqual(Object.fromEntries(policy.map(x=>[x.name,x.value])),{projectId:'REPLACE_WITH_YOUR_PROJECT_ID',executionEnabled:true,billingMode:'sandbox-no-billing',maximumBytesBilled:'26843545600'});
+ assert.equal(query.nodes.filter(n=>n.type.endsWith('.httpRequest')).length,2);
+ const executionCode=query.nodes.find(n=>n.name==='Build Fixed CPC Trend Query').parameters.jsCode;assert.match(executionCode,/maximumBytesBilled/);
+ const execution=vm.runInNewContext('(function(){'+executionCode+'})()',{$input:{first:()=>({json:{projectId:'example-project-123',executionEnabled:true,billingMode:'sandbox-no-billing',maximumBytesBilled:'26843545600',body:{cpc:'G06N',from:2021,to:2025}}})}});
+ assert.equal(execution[0].json.request.dryRun,false);assert.equal(execution[0].json.request.maximumBytesBilled,'26843545600');assert.equal(execution[0].json.request.maxResults,31);assert.match(execution[0].json.request.query,/COUNT\(DISTINCT publication_number\)/);
+ const queryGateway=JSON.parse(fs.readFileSync(new URL('../extras/n8n/workflows/google-bigquery-query.json',import.meta.url),'utf8'));
+ assert.equal(queryGateway.nodes.find(n=>n.type.endsWith('.webhook')).parameters.path,'patent-research-google-bigquery-query');
+ assert.equal(queryGateway.nodes.find(n=>n.type.endsWith('.executeWorkflow')).parameters.workflowId.value,query.id);
+});
+test('BigQuery estimator invokes only the dry-run gateway and rejects unsafe responses',async()=>{
+ const config={googleBigQueryDryRunEnabled:true,googleBigQueryExecutionEnabled:false,googleBigQueryProjectId:'example-project-123'};
+ let called;
+ const response={status:200,dryRun:true,executedDataQuery:false,jobReference:{projectId:'example-project-123'},statistics:{totalBytesProcessed:'17692440771',query:{totalBytesBilled:'0',totalBytesProcessedAccuracy:'PRECISE'}}};
+ const result=await estimateBigQuery({cpc:'g06n',from:2024,to:2024},{config,call:async(route,body)=>{called={route,body};return response;}});
+ assert.deepEqual(called,{route:'google-bigquery',body:{country:'US',cpc:'G06N',from:2024,to:2024}});
+ assert.equal(result.totalBytesProcessed,'17692440771');
+ assert.equal(result.totalBytesBilled,'0');
+ assert.equal(result.executedDataQuery,false);
+ assert.equal((await estimateBigQuery({cpc:'G06N',from:2024,to:2024},{config:{...config,googleBigQueryExecutionEnabled:true},call:async()=>response})).dryRun,true);
+ assert.throws(()=>validateBigQueryEstimate({...response,statistics:{...response.statistics,query:{totalBytesBilled:'1'}}},{plan:externalAccess({source:'google-bigquery',cpc:'G06N',from:2024,to:2024}),projectId:'example-project-123'}),/billed bytes/);
+});
+test('Capped BigQuery trend validates aggregate rows and records a conservative local budget',async()=>{
+ const input={cpc:'G06N',from:2023,to:2025},plan=externalAccess({source:'google-bigquery',...input}),config={googleBigQueryDryRunEnabled:true,googleBigQueryExecutionEnabled:true,googleBigQueryBillingMode:'sandbox-no-billing',googleBigQueryProjectId:'example-project-123',googleBigQueryPerQueryMaxBytes:'26843545600',googleBigQueryMonthlyTrackedMaxBytes:'274877906944'};
+ const response={status:200,dryRun:false,executedDataQuery:true,jobComplete:true,jobReference:{projectId:'example-project-123',jobId:'fixture'},maximumBytesBilled:'26843545600',schema:{fields:[{name:'year',type:'INTEGER'},{name:'publications',type:'INTEGER'}]},rows:[{f:[{v:'2023'},{v:'100'}]},{f:[{v:'2025'},{v:'121'}]}],totalRows:'2',totalBytesProcessed:'17692440771',totalBytesBilled:'17692663808',cacheHit:false,tableMetadataStatus:200,tableMetadata:{projectId:'patents-public-data',datasetId:'patents',tableId:'publications',lastModifiedTime:'1788739200000',numRows:'100000',numBytes:'200000'}};
+ let persisted=null;const calls=[],store={reserveBigQuery:a=>{calls.push(['reserve',a]);return {trackedMonth:'2026-09',monthlyLimitBytes:a.monthlyLimit,trackedBytesBefore:'0'};},completeBigQuery:(id,a)=>{calls.push(['complete',a]);return {status:a.status,trackedBytesAfter:a.usageBytes};},getQueryCache:()=>persisted,saveQueryCache:(kind,key,value)=>{persisted={kind,key,updatedAt:'2026-09-07T13:30:00.000Z',payloadSha256:'b'.repeat(64),value:structuredClone(value)};return persisted;},queryCacheStatus:()=>({kind:'cpc-trend',entries:persisted?1:0,firstCreatedAt:null,lastUpdatedAt:persisted?.updatedAt||null,integrity:'fixture'})};
+ const result=await queryBigQueryTrend(input,{config,store,estimate:async()=>({totalBytesProcessed:'17692440771',estimateAccuracy:'PRECISE'}),call:async(route,body)=>{calls.push([route,body]);return response;}});
+ assert.deepEqual(result.series,[{year:2023,count:100,yoyPercent:null},{year:2024,count:0,yoyPercent:-100},{year:2025,count:121,yoyPercent:null}]);
+ assert.equal(calls.find(x=>x[0]==='google-bigquery-query')[1].cpc,'G06N');assert.equal(result.budget.trackedBytesAfter,'17692663808');
+ assert.equal(result.delivery.mode,'hosted-query');assert.ok(persisted);
+ const fallback=await queryBigQueryTrend(input,{config,store,estimate:async()=>{throw new Error('provider temporarily unavailable');},call:async()=>{throw new Error('must not execute');}});assert.equal(fallback.delivery.mode,'local-validated-aggregate-cache');assert.equal(fallback.delivery.cachedAt,'2026-09-07T13:30:00.000Z');assert.match(fallback.warnings[0],/provider temporarily unavailable/);assert.deepEqual(fallback.series,result.series);
+ const status=bigQuerySourceStatus({config,store});assert.equal(status.downloadRequired,false);assert.equal(status.localPersistence.entries,1);assert.equal(status.hosted.table,'patents-public-data.patents.publications');
+ assert.throws(()=>validateBigQueryTrend({...response,rows:[{f:[{v:'2026'},{v:'1'}]}],totalRows:'1'},{plan,projectId:'example-project-123',maximumBytesBilled:'26843545600'}),/invalid or duplicate year/);
+ const configurationFallback=await queryBigQueryTrend(input,{config:{...config,googleBigQueryBillingMode:'on-demand'},store,estimate:async()=>({totalBytesProcessed:'1'})});assert.equal(configurationFallback.delivery.mode,'local-validated-aggregate-cache');assert.equal(configurationFallback.delivery.providerAttempted,false);assert.match(configurationFallback.delivery.providerError,/no-billing sandbox/);
+});
+test('BigQuery local ledger reserves atomically and releases unused cache budget',()=>{const dir=fs.mkdtempSync(path.join(os.tmpdir(),'bigquery-ledger-')),hub=new Hub({dataRoot:dir,config:{transport:'direct'}});try{const one='11111111-1111-4111-8111-111111111111',two='22222222-2222-4222-8222-222222222222',month='2026-09';hub.store.reserveBigQuery({id:one,month,estimatedBytes:'60',monthlyLimit:'100',parameters:{}});assert.throws(()=>hub.store.reserveBigQuery({id:two,month,estimatedBytes:'50',monthlyLimit:'100',parameters:{}}),/monthly byte limit/);hub.store.completeBigQuery(one,{status:'complete',usageBytes:'0',cacheHit:true});hub.store.reserveBigQuery({id:two,month,estimatedBytes:'50',monthlyLimit:'100',parameters:{}});assert.equal(hub.store.bigQueryUsage(month).trackedBytes,'50');}finally{hub.store.close();fs.rmSync(dir,{recursive:true,force:true});}});
+test('Interrupted BigQuery reservations become visible and require evidence before reconciliation',()=>{const dir=fs.mkdtempSync(path.join(os.tmpdir(),'bigquery-reconcile-')),hub=new Hub({dataRoot:dir,config:{transport:'direct'}});try{const id='33333333-3333-4333-8333-333333333333',month='2026-09';hub.store.reserveBigQuery({id,month,estimatedBytes:'50',monthlyLimit:'100',parameters:{operation:'fixture'}});const row=hub.store.db.prepare('SELECT body FROM bigquery_usage WHERE id=?').get(id),body=JSON.parse(row.body);body.created='2026-09-01T00:00:00.000Z';hub.store.db.prepare('UPDATE bigquery_usage SET created=?,body=? WHERE id=?').run(body.created,JSON.stringify(body),id);assert.equal(hub.store.bigQueryUsage(month).needsReconciliation.length,1);assert.throws(()=>hub.store.reconcileBigQuery(id,{actualBytes:0,evidence:'too short'}));const note='Verified in provider job history: no matching query job was created.';assert.throws(()=>hub.store.reconcileBigQuery(id,{evidence:note}),/requires actualBytes/);assert.throws(()=>hub.store.reconcileBigQuery(id,{actualBytes:0,evidence:note}),/below the dry-run estimate/);assert.throws(()=>hub.store.reconcileBigQuery(id,{actualBytes:49,evidence:note}),/below the dry-run estimate/);assert.equal(hub.store.bigQueryUsage(month).trackedBytes,'50');const result=hub.store.reconcileBigQuery(id,{actualBytes:0,evidence:note,forceZero:true});assert.equal(result.reconciled,true);assert.equal(hub.store.bigQueryUsage(month).trackedBytes,'0');}finally{hub.store.close();fs.rmSync(dir,{recursive:true,force:true});}});
+test('Examiner plans use fixed PatEx SQL and named parameters',()=>{
+ const input=normalizeExaminerInput({scope:'examiner',examiner:'  Example,  Alex Q  ',from:2012,to:2014});
+ assert.deepEqual(input,{scope:'examiner',value:'EXAMPLE, ALEX Q',from:2012,to:2014});
+ const plan=buildExaminerPlan({scope:'examiner',examiner:'EXAMPLE, ALEX Q',from:2012,to:2014});
+ const sql=plan.request.configuration.query.query;
+ assert.match(sql,/`patents-public-data\.uspto_oce_pair\.application_data`/);
+ assert.match(sql,/examiner_name_last/);assert.match(sql,/SAFE\.PARSE_DATE/);
+ assert.match(sql,/@scope_value/);assert.doesNotMatch(sql,/EXAMPLE/);
+ assert.equal(plan.request.configuration.dryRun,true);
+ assert.deepEqual(plan.request.configuration.query.queryParameters.slice(0,4).map(x=>[x.name,x.parameterValue.value]),[['scope_type','examiner'],['scope_value','EXAMPLE, ALEX Q'],['from_year','2012'],['to_year','2014']]);
+ assert.match(plan.request.configuration.query.queryParameters[4].parameterValue.value,/^\d{4}-\d{2}-\d{2}$/);
+ assert.deepEqual(normalizeExaminerInput({scope:'art-unit',artUnit:'3645',from:2012,to:2014}),{scope:'art-unit',value:'3645',from:2012,to:2014});
+ assert.throws(()=>normalizeExaminerInput({scope:'examiner',examiner:"x'; DROP TABLE y;--",from:2012,to:2014}));
+ assert.throws(()=>normalizeExaminerInput({scope:'art-unit',artUnit:'3645 OR 1=1',from:2012,to:2014}));
+});
+test('Generated examiner workflows are portable, capped, and fixed to the hosted PatEx table',()=>{
+ const dry=JSON.parse(fs.readFileSync(new URL('../extras/n8n/workflows/examiner-bigquery-core.json',import.meta.url),'utf8'));
+ const query=JSON.parse(fs.readFileSync(new URL('../extras/n8n/workflows/examiner-bigquery-query-core.json',import.meta.url),'utf8'));
+ for(const workflow of [dry,query]){assert.equal(workflow.active,false);assert.equal(workflow.nodes.some(n=>n.type.endsWith('.manualTrigger')),false);assert.equal(workflow.nodes.some(n=>'credentials' in n),false);}
+ const dryCode=dry.nodes.find(n=>n.name==='Build Fixed PatEx Examiner Dry Run').parameters.jsCode;
+ const dryResult=vm.runInNewContext('(function(){'+dryCode+'})()',{$input:{first:()=>({json:{projectId:'example-project-123',executionEnabled:false,billingMode:'sandbox-no-billing',maximumBytesBilled:'26843545600',body:{scope:'examiner',examiner:'EXAMPLE, ALEX Q',from:2012,to:2014}}})}});
+ assert.equal(dryResult[0].json.request.configuration.dryRun,true);assert.match(dryResult[0].json.request.configuration.query.query,/uspto_oce_pair\.application_data/);assert.doesNotMatch(dryResult[0].json.request.configuration.query.query,/EXAMPLE/);
+ assert.equal(dry.nodes.filter(n=>n.type.endsWith('.httpRequest')).length,2);
+ const queryCode=query.nodes.find(n=>n.name==='Build Fixed PatEx Examiner Query').parameters.jsCode;
+ const execution=vm.runInNewContext('(function(){'+queryCode+'})()',{$input:{first:()=>({json:{projectId:'example-project-123',executionEnabled:true,billingMode:'sandbox-no-billing',maximumBytesBilled:'26843545600',body:{scope:'art-unit',artUnit:'3645',from:2012,to:2014}}})}});
+ assert.equal(execution[0].json.request.dryRun,false);assert.equal(execution[0].json.request.maximumBytesBilled,'26843545600');assert.equal(execution[0].json.request.maxResults,31);
+ assert.equal(query.nodes.filter(n=>n.type.endsWith('.httpRequest')).length,2);
+ const gateway=JSON.parse(fs.readFileSync(new URL('../extras/n8n/workflows/examiner-bigquery-query.json',import.meta.url),'utf8'));
+ assert.equal(gateway.nodes.find(n=>n.type.endsWith('.webhook')).parameters.authentication,'headerAuth');
+ assert.equal(gateway.nodes.find(n=>n.type.endsWith('.executeWorkflow')).parameters.workflowId.value,query.id);
+});
+test('Examiner dry run and capped outcome query validate schemas, rows, and ledger use',async()=>{
+ const input={scope:'examiner',examiner:'EXAMPLE, ALEX Q',from:2012,to:2014},plan=buildExaminerPlan(input);
+ const config={googleBigQueryDryRunEnabled:true,googleBigQueryExecutionEnabled:true,googleBigQueryBillingMode:'sandbox-no-billing',googleBigQueryProjectId:'example-project-123',googleBigQueryPerQueryMaxBytes:'26843545600',googleBigQueryMonthlyTrackedMaxBytes:'274877906944'};
+ const estimateResponse={status:200,dryRun:true,executedDataQuery:false,jobReference:{projectId:'example-project-123'},statistics:{totalBytesProcessed:'987654321',query:{totalBytesBilled:'0',totalBytesProcessedAccuracy:'PRECISE'}}};
+ let estimateCall;const estimate=await estimateExaminer(input,{config,call:async(route,body)=>{estimateCall={route,body};return estimateResponse;}});
+ assert.deepEqual(estimateCall,{route:'examiner-bigquery',body:plan.parameters});assert.equal(estimate.totalBytesBilled,'0');
+ assert.throws(()=>validateExaminerEstimate({...estimateResponse,statistics:{...estimateResponse.statistics,query:{totalBytesBilled:'1'}}},{plan,projectId:'example-project-123'}),/billed bytes/);
+ const schema=[['year','INTEGER'],['issued','INTEGER'],['abandoned','INTEGER'],['max_filing_date','DATE'],['max_disposal_date','DATE'],['invalid_filing_dates','INTEGER'],['invalid_issue_dates','INTEGER'],['invalid_abandon_dates','INTEGER']].map(([name,type])=>({name,type}));
+ const tableSchema=[['application_number','STRING'],['filing_date','STRING'],['invention_subject_matter','STRING'],['application_type','STRING'],['examiner_name_last','STRING'],['examiner_name_first','STRING'],['examiner_name_middle','STRING'],['examiner_id','STRING'],['examiner_art_unit','STRING'],['patent_issue_date','STRING'],['abandon_date','STRING'],['disposal_type','STRING']].map(([name,type])=>({name,type,mode:'NULLABLE'}));
+ const quality=[{v:'1'},{v:'2'},{v:'3'}];const response={status:200,dryRun:false,executedDataQuery:true,jobComplete:true,jobReference:{projectId:'example-project-123',jobId:'fixture'},maximumBytesBilled:'26843545600',schema:{fields:schema},rows:[{f:[{v:'2012'},{v:'10'},{v:'2'},{v:'2017-10-12'},{v:'2017-10-10'},...quality]},{f:[{v:'2013'},{v:'8'},{v:'4'},{v:'2017-10-12'},{v:'2017-10-10'},...quality]},{f:[{v:'2014'},{v:'0'},{v:'0'},{v:'2017-10-12'},{v:'2017-10-10'},...quality]}],totalRows:'3',totalBytesProcessed:'987654321',totalBytesBilled:'987758592',cacheHit:false,tableMetadataStatus:200,tableMetadata:{projectId:'patents-public-data',datasetId:'uspto_oce_pair',tableId:'application_data',lastModifiedTime:'1507766400000',numRows:'9817693',numBytes:'1234567890',schema:tableSchema}};
+ let persisted=null;const calls=[],store={reserveBigQuery:a=>{calls.push(['reserve',a]);return {trackedMonth:'2026-09',monthlyLimitBytes:a.monthlyLimit,trackedBytesBefore:'0'};},completeBigQuery:(id,a)=>{calls.push(['complete',a]);return {status:a.status,trackedBytesAfter:a.usageBytes};},getQueryCache:()=>persisted,saveQueryCache:(kind,key,value)=>{persisted={kind,key,updatedAt:'2026-09-07T12:00:00.000Z',payloadSha256:'a'.repeat(64),value:structuredClone(value)};return persisted;},queryCacheStatus:()=>({kind:'examiner-trend',entries:persisted?1:0,firstCreatedAt:null,lastUpdatedAt:persisted?.updatedAt||null,integrity:'fixture'})};
+ let estimateInput;const trend=await queryExaminerTrend(input,{config,store,estimate:async value=>{estimateInput=value;return {totalBytesProcessed:'987654321',estimateAccuracy:'PRECISE'};},call:async(route,body)=>{calls.push([route,body]);return response;}});
+ assert.deepEqual(trend.series.map(x=>[x.year,x.issued,x.abandoned,x.disposed,x.issueSharePercent]),[[2012,10,2,12,83.33],[2013,8,4,12,66.67],[2014,0,0,0,null]]);
+ assert.deepEqual(trend.dataBounds,{maxFilingDate:'2017-10-12',maxDisposalDate:'2017-10-10',dataCutoff:'2017-10-12'});assert.equal(trend.tableMetadata.numRows,'9817693');
+ assert.deepEqual(trend.dataQuality,{invalidFilingDates:'1',invalidIssueDates:'2',invalidAbandonDates:'3'});
+ assert.deepEqual(estimateInput,input);
+ assert.equal(calls.find(x=>x[0]==='examiner-bigquery-query')[1].value,'EXAMPLE, ALEX Q');assert.equal(trend.budget.trackedBytesAfter,'987758592');
+ assert.equal(trend.delivery.mode,'hosted-query');assert.ok(persisted);
+ const fallback=await queryExaminerTrend(input,{config,store,estimate:async()=>{throw new Error('provider temporarily unavailable');},call:async()=>{throw new Error('must not execute');}});
+ assert.equal(fallback.delivery.mode,'local-validated-aggregate-cache');assert.equal(fallback.delivery.cachedAt,'2026-09-07T12:00:00.000Z');assert.match(fallback.warnings[0],/provider temporarily unavailable/);assert.deepEqual(fallback.series,trend.series);
+ const status=examinerSourceStatus({config,store});assert.equal(status.downloadRequired,false);assert.equal(status.optionalOfficialBulkSnapshot.applicationDataCsv,'887 MB');assert.equal(status.localPersistence.entries,1);
+ assert.throws(()=>validateExaminerTrend({...response,tableMetadata:{...response.tableMetadata,schema:tableSchema.filter(x=>x.name!=='examiner_name_last')}},{plan,projectId:'example-project-123',maximumBytesBilled:'26843545600'}),/examiner_name_last/);
+ const configurationFallback=await queryExaminerTrend(input,{config:{...config,googleBigQueryBillingMode:'on-demand'},store,estimate:async()=>({totalBytesProcessed:'1'})});assert.equal(configurationFallback.delivery.mode,'local-validated-aggregate-cache');assert.match(configurationFallback.delivery.providerError,/no-billing BigQuery sandbox/);
+});
+test('Official reference identity rejects off-domain URLs and monitor signatures ignore scripts',()=>{
+ for(const url of ['http://www.uspto.gov/a','https://www.uspto.gov.evil.example/a','https://x@www.uspto.gov/a','https://127.0.0.1/a'])assert.throws(()=>validateReferenceUrl(url));
+ const body='<main><p>'+('Official guidance and dated source text. '.repeat(8))+'</p><a href="/a.pdf">Rules</a></main>';
+ assert.deepEqual(monitorContent(body+'<script>random1</script>','https://www.uspto.gov/x'),monitorContent(body+'<script>random2</script>','https://www.uspto.gov/x'));
+});
+test('USPTO guidance refresh reuses the verified reference-index gateway in n8n mode',async()=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'guidance-gateway-')),auth=path.join(dir,'auth.env');fs.writeFileSync(auth,'RESEARCH_GATEWAY_AUTH_HEADER_VALUE=Bearer '+('a'.repeat(43))+'\n');
+ const html='<main><p>Official USPTO guidance index</p><a href="/sites/default/files/guidance/example.pdf">Examination guidance PDF</a></main>';let called;
+ const hub=new Hub({dataRoot:path.join(dir,'data'),config:{transport:'n8n',referenceGatewayEnabled:true,n8nBaseUrl:'http://127.0.0.1:59999',gatewayAuthFile:auth},fetchImpl:async(url,options)=>{called={url:String(url),body:JSON.parse(options.body)};return new Response(JSON.stringify({status:200,contentType:'text/html',text:html}),{headers:{'content-type':'application/json'}});}});
+ try{const result=await hub.sync('uspto-guidance');assert.equal(result.returned,1);assert.match(called.url,/patent-research-reference-index$/);assert.deepEqual(called.body,{source:'patent-guidance'});}finally{hub.store.close();fs.rmSync(dir,{recursive:true,force:true});}
+});
+function fixture(){const dir=fs.mkdtempSync(path.join(os.tmpdir(),'reference-test-'));const catalogPath=path.join(dir,'refs.json');fs.writeFileSync(catalogPath,JSON.stringify({references:[{id:'mpep-2100',family:'mpep',url:'https://www.uspto.gov/test.pdf',title:'MPEP fixture',edition:'fixture only'}],monitors:[],policy:'fixture'}));const hub=new Hub({dataRoot:dir,config:{transport:'direct'}});let version=1,submissions=0,corrupt=false;const text=()=>version===1?'Eligibility alpha original text':'Eligibility beta revised text';const docId=()=>hash('original bytes '+version);const client={request:async(route,body)=>{if(route==='/v1/get-files'){submissions++;return {items:[{index:0,job_id:'job-'+version,status:'queued'}]};}const offset=Number(new URL('http://localhost'+route).searchParams.get('offset'));return {chunks:offset?[]:[{sequence:0,locator:'page:1',text:text(),sha256:corrupt?'0'.repeat(64):hash(text())}]};},getJobs:async()=>({jobs:[{status:'ready',document_id:docId(),original:{sha256:docId(),path:'fixture.pdf'}}]}),document:async()=>({id:docId(),status:'ready',manifest:{chunks:1,metadata:{pages:1},normalized_sha256:hash(text()),warnings:[]}})};hub.corpus=async()=>client;return {hub,lib:new ReferenceLibrary(hub,{catalogPath}),get submissions(){return submissions;},set version(n){version=n;},set corrupt(v){corrupt=v;},close(){hub.store.close();fs.rmSync(dir,{recursive:true,force:true});}};}
+test('Reference queue reuses jobs and pinned search stays on the selected immutable version',async()=>{
+ const f=fixture();try{await f.lib.queue();await f.lib.queue();assert.equal(f.submissions,1);assert.equal((await f.lib.poll()).pinned,1);assert.equal(f.lib.search('alpha').results.length,1);const first=f.lib.list().references[0].pin.documentId;
+ f.version=2;await f.lib.queue({cycle:'revision-2'});const next=await f.lib.poll();assert.equal(next.candidates.length,1);assert.equal(f.lib.search('beta').results.length,0);assert.equal(f.lib.list().references[0].pin.documentId,first);
+ f.lib.pin('mpep-2100',next.candidates[0].documentId);assert.equal(f.lib.search('beta').results.length,1);assert.equal(f.lib.search('alpha').results.length,0);assert.equal(f.hub.store.db.prepare('SELECT count(*) AS n FROM reference_versions').get().n,2);
+ }finally{f.close();}
+});
+test('Corrupted extracted chunks cannot become pinned reference text',async()=>{const f=fixture();try{f.corrupt=true;await f.lib.queue();await assert.rejects(()=>f.lib.poll(),/integrity/);assert.equal(f.lib.list().references[0].pin,null);}finally{f.close();}});
+test('Blank-page reviews are tied to a source hash and cannot waive additional extraction gaps',()=>{const review={blankPages:[5]},doc={id:'fixture',manifest:{empty_pages:['page:5'],warnings:['Page 5 has no native text; blank or image content needs review/OCR']}};assert.equal(blankPageReview(doc,{fixture:review}),review);assert.equal(blankPageReview({...doc,id:'other'}, {fixture:review}),null);assert.equal(blankPageReview({...doc,manifest:{...doc.manifest,empty_pages:['page:6']}},{fixture:review}),null);assert.equal(blankPageReview({...doc,manifest:{...doc.manifest,warnings:['Extraction truncated']}},{fixture:review}),null);});
+test('Generated n8n reference validation executes and rejects unconfigured or injected URLs',()=>{const w=JSON.parse(fs.readFileSync(new URL('../extras/n8n/workflows/reference-index-core.json',import.meta.url),'utf8'));const code=w.nodes.find(n=>n.name==='Validate Official Index').parameters.jsCode;const run=url=>vm.runInNewContext('(function(){'+code+'})()',{$input:{first:()=>({json:{sourceUrls:JSON.stringify({'mpep-index':url}),body:{source:'mpep-index'}}})}});assert.equal(run('https://www.uspto.gov/web/offices/pac/mpep/index.html')[0].json.source,'mpep-index');assert.throws(()=>run('https://www.uspto.gov.evil.example/a'));assert.throws(()=>run('http://www.uspto.gov/a'));assert.throws(()=>run('https://www.uspto.gov@evil.example/a'));assert.throws(()=>run('https://www.uspto.gov/a?secret=1'));});

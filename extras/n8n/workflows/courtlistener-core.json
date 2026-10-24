@@ -1,0 +1,161 @@
+{
+  "id": "patent-research-courtlistener-core",
+  "name": "Patent Research — COURTLISTENER (callable tool)",
+  "active": false,
+  "nodes": [
+    {
+      "id": "5a669a04-34e0-4aee-8ae1-8d5361b88d25",
+      "name": "When Called by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -650,
+        0
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "442cf611-dd40-44a2-91ca-d8414a4df04a",
+      "name": "Connection Settings",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -400,
+        0
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "2a07f2c8-52a0-4c84-8c13-a1ae51ad7982",
+              "name": "sourceUrls",
+              "value": "{\"courtlistener\":\"https://www.courtlistener.com/api/rest/v4/search/\"}",
+              "type": "string"
+            },
+            {
+              "id": "efce825b-e854-41c1-8d63-7a9b86391c11",
+              "name": "internalUseAgreementConfirmed",
+              "value": true,
+              "type": "boolean"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "d048ce4b-6b5a-4669-a784-d57f9172a5d8",
+      "name": "Validate Source Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -120,
+        0
+      ],
+      "parameters": {
+        "jsCode": "function validateWorkflowSource(j,route){\n  const b=j.source?j:j.body||{};\n  const urls=JSON.parse(j.sourceUrls),base=urls[b.source];\n  if(typeof base!=='string')throw new Error('Source not configured');\n  let url=b.url||base;\n  const allowed=/^https:\\/\\/(?:www\\.cafc\\.uscourts\\.gov|www\\.uspto\\.gov|api\\.uspto\\.gov|api\\.govinfo\\.gov|www\\.courtlistener\\.com|ops\\.epo\\.org)\\//;\n  if(typeof url!=='string'||!allowed.test(base)||!allowed.test(url)||/[\\s\\\\#\\u0000-\\u001f\\u007f]/.test(url))throw new Error('Unapproved source URL');\n  const requestPath=url.split('?')[0];\n  if(route==='epo'){\n    const suffix=requestPath.slice(base.length);\n    if(!requestPath.startsWith(base)||!/^\\/published-data\\/publication\\/epodoc\\/[A-Z]{2}[0-9]{1,14}[A-Z]?[0-9]?\\/biblio$/.test(suffix))throw new Error('Invalid EPO lookup');\n  }else if(requestPath!==base)throw new Error('Unapproved source path');\n  if(route==='courtlistener'&&!j.internalUseAgreementConfirmed)throw new Error('Confirm internal-tool use agreement in Connection Settings');\n  const method=route==='govinfo'||b.source==='odp'?'POST':'GET';\n  if((b.method||'GET')!==method)throw new Error('Method not allowed');\n  if(JSON.stringify(b).length>16000)throw new Error('Request too large');\n  if(b.source==='odp'){\n    const {q,pagination}=b.body||{};\n    if(typeof q!=='string'||!q.trim()||q.length>2000||!Number.isSafeInteger(pagination?.offset)||pagination.offset<0||!Number.isSafeInteger(pagination?.limit)||pagination.limit<1||pagination.limit>100)throw new Error('Invalid USPTO query or pagination');\n  }\n  if(route==='govinfo'){\n    const body=b.body;\n    if(!body||Array.isArray(body)||typeof body!=='object')throw new Error('Invalid GovInfo request body');\n    const keys=Object.keys(body).sort().join(',');\n    if(keys!=='offsetMark,pageSize,query,sorts')throw new Error('Unexpected GovInfo request fields');\n    if(typeof body.query!=='string'||!body.query.startsWith('collection:USCOURTS ')||!body.query.slice(20).trim()||body.query.length>2020)throw new Error('GovInfo query must target USCOURTS');\n    if(typeof body.pageSize!=='string'||!/^\\d{1,3}$/.test(body.pageSize)||Number(body.pageSize)<1||Number(body.pageSize)>100)throw new Error('Invalid GovInfo page size');\n    if(typeof body.offsetMark!=='string'||!body.offsetMark||body.offsetMark.length>2000||/[\\u0000-\\u001f\\u007f]/.test(body.offsetMark))throw new Error('Invalid GovInfo offset mark');\n    if(!Array.isArray(body.sorts)||body.sorts.length!==1||Object.keys(body.sorts[0]||{}).sort().join(',')!=='field,sortOrder'||body.sorts[0].field!=='score'||body.sorts[0].sortOrder!=='DESC')throw new Error('Invalid GovInfo sort');\n  }\n  if(route==='courtlistener'){\n    const query=url.slice(base.length+1);\n    if(!url.startsWith(base+'?')||!query)throw new Error('Invalid CourtListener query');\n    const values={};\n    for(const part of query.split('&')){\n      const pair=part.split('=');\n      if(pair.length!==2)throw new Error('Invalid CourtListener query');\n      let key,value;try{key=decodeURIComponent(pair[0].replace(/\\+/g,' '));value=decodeURIComponent(pair[1].replace(/\\+/g,' '));}catch{throw new Error('Invalid CourtListener query encoding');}\n      if(!['q','type','cursor'].includes(key)||Object.prototype.hasOwnProperty.call(values,key))throw new Error('Unexpected CourtListener query field');\n      values[key]=value;\n    }\n    if(typeof values.q!=='string'||!values.q.trim()||values.q.length>2000||values.type!=='o'||(values.cursor!==undefined&&(!values.cursor||values.cursor.length>2000)))throw new Error('Invalid CourtListener search parameters');\n    url=base+'?q='+encodeURIComponent(values.q)+'&type=o'+(values.cursor===undefined?'':'&cursor='+encodeURIComponent(values.cursor));\n  }\n  return {url,method,body:b.body||{}};\n};return [{json:validateWorkflowSource($input.first().json,'courtlistener')}];"
+      }
+    },
+    {
+      "id": "6ae340cf-5dfd-435b-af9e-11ee24c615e2",
+      "name": "Provider — select credential here",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        350,
+        0
+      ],
+      "parameters": {
+        "method": "={{ $json.method }}",
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 60000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "08446e88-004b-46cd-a8ee-8bf0b6ccba24",
+      "name": "Package Source Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const r=$input.first().json;const body=r.body??r.data;if(body===undefined)throw new Error('Source response envelope changed');const text=typeof body==='string'?body:JSON.stringify(body);if(text.length>6000000)throw new Error('Source response too large');return [{json:{text,status:r.statusCode,contentType:r.headers?.['content-type']||''}}];"
+      }
+    }
+  ],
+  "connections": {
+    "When Called by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Connection Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Connection Settings": {
+      "main": [
+        [
+          {
+            "node": "Validate Source Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Source Request": {
+      "main": [
+        [
+          {
+            "node": "Provider — select credential here",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Provider — select credential here": {
+      "main": [
+        [
+          {
+            "node": "Package Source Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionTimeout": 270,
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "none",
+    "saveExecutionProgress": false,
+    "saveManualExecutions": false,
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

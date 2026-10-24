@@ -1,0 +1,27 @@
+{
+  "name": "patent-research-hub",
+  "version": "0.1.0",
+  "description": "Deterministic patent and legal source-retrieval layer (MCP server and CLI) for IP practitioners.",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.13.0"
+  },
+  "scripts": {
+    "start": "node src/cli.mjs",
+    "test": "node --test test/*.test.mjs",
+    "mcp": "node src/mcp.mjs",
+    "doctor": "node src/cli.mjs doctor",
+    "references:fetch": "node src/cli.mjs references-fetch",
+    "n8n:build-originals": "node extras/n8n/scripts/build-original-workflows.mjs",
+    "n8n:build-patent-documents": "node extras/n8n/scripts/build-patent-document-workflows.mjs",
+    "n8n:prepare-deployment": "node extras/n8n/scripts/prepare-deployment.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "fast-xml-parser": "5.11.1",
+    "parse5": "8.0.1",
+    "zod": "4.5.4"
+  }
+}

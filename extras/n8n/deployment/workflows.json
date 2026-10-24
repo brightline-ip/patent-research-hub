@@ -1,0 +1,4182 @@
+[
+  {
+    "id": "patent-research-application-documents-core",
+    "name": "Patent Research — Application documents (callable tool)",
+    "description": null,
+    "active": false,
+    "nodes": [
+      {
+        "id": "696feb2c-90bf-49a5-af66-f55e019c3d42",
+        "name": "When Called",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          -600,
+          0
+        ],
+        "parameters": {
+          "inputSource": "passthrough"
+        }
+      },
+      {
+        "id": "39c7e786-d4e5-44a1-a674-ae94a95c6c86",
+        "name": "Validate Application",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -300,
+          0
+        ],
+        "parameters": {
+          "jsCode": "const j=$input.first().json;const b=j.application_number?j:j.body||{};if(!/^\\d{8}$/.test(b.application_number||''))throw Error('Public US application number must contain eight digits');return [{json:{application_number:b.application_number,url:'https://api.uspto.gov/api/v1/patent/applications/'+b.application_number+'/documents'}}];"
+        }
+      },
+      {
+        "id": "0446684b-c63d-4b87-84f4-500344e6f790",
+        "name": "Read Official Document List",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "method": "GET",
+          "url": "={{ $json.url }}",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth",
+          "options": {
+            "timeout": 60000,
+            "redirect": {
+              "redirect": {
+                "followRedirects": false
+              }
+            },
+            "response": {
+              "response": {
+                "responseFormat": "json",
+                "fullResponse": true,
+                "neverError": true
+              }
+            }
+          }
+        },
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "REPLACE_WITH_USPTO_CREDENTIAL_ID",
+            "name": "USPTO ODP API Key"
+          }
+        }
+      },
+      {
+        "id": "9fedbc60-28e6-45cd-b0f3-6fcaae78f0f8",
+        "name": "Package Document List",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          300,
+          0
+        ],
+        "parameters": {
+          "jsCode": "const r=$input.first().json;if(r.statusCode!==200)throw Error('USPTO document list HTTP '+Number(r.statusCode||0));return [{json:{application_number:$('Validate Application').first().json.application_number,source_url:$('Validate Application').first().json.url,retrieved_at:new Date().toISOString(),status:200,body:r.body}}];"
+        }
+      }
+    ],
+    "connections": {
+      "When Called": {
+        "main": [
+          [
+            {
+              "node": "Validate Application",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Validate Application": {
+        "main": [
+          [
+            {
+              "node": "Read Official Document List",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Read Official Document List": {
+        "main": [
+          [
+            {
+              "node": "Package Document List",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  },
+  {
+    "id": "patent-research-application-documents",
+    "name": "Patent Research — Application documents (authenticated gateway)",
+    "description": null,
+    "active": false,
+    "nodes": [
+      {
+        "id": "16c9cf6e-37ea-42bb-8775-31c316f88071",
+        "name": "Research Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          -650,
+          0
+        ],
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "patent-research-application-documents",
+          "authentication": "headerAuth",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "webhookId": "379a8458-7da0-47ec-bdcf-4d17a01001d2",
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "REPLACE_WITH_GATEWAY_CREDENTIAL_ID",
+            "name": "Research Gateway - Inbound Header Auth"
+          }
+        }
+      },
+      {
+        "id": "4a699a90-4fa6-4487-b844-8f66a0015b7e",
+        "name": "Call Shared Source Tool",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "workflowId": {
+            "__rl": true,
+            "value": "patent-research-application-documents-core",
+            "mode": "id"
+          },
+          "mode": "each",
+          "options": {
+            "waitForSubWorkflow": true
+          }
+        }
+      },
+      {
+        "id": "02840e3d-95df-484b-ad2f-255f780b911f",
+        "name": "Return Result",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.4,
+        "position": [
+          650,
+          0
+        ],
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json }}",
+          "options": {}
+        }
+      }
+    ],
+    "connections": {
+      "Research Webhook": {
+        "main": [
+          [
+            {
+              "node": "Call Shared Source Tool",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Call Shared Source Tool": {
+        "main": [
+          [
+            {
+              "node": "Return Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  },
+  {
+    "id": "patent-research-application-pdf-core",
+    "name": "Patent Research — Application PDF (callable tool)",
+    "description": null,
+    "active": false,
+    "nodes": [
+      {
+        "id": "64d34346-c9d9-44d6-be2d-ddde31defd5c",
+        "name": "When Called by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          -650,
+          0
+        ],
+        "parameters": {
+          "inputSource": "passthrough"
+        }
+      },
+      {
+        "id": "patent-stream-original",
+        "name": "Stream and Verify USPTO Original",
+        "type": "n8n-nodes-patent-research.usptoOriginal",
+        "typeVersion": 1,
+        "position": [
+          -200,
+          0
+        ],
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "REPLACE_WITH_USPTO_CREDENTIAL_ID",
+            "name": "USPTO ODP API Key"
+          }
+        },
+        "parameters": {
+          "applicationNumber": "={{ $json.application_number || $json.body?.application_number }}",
+          "documentIdentifier": "={{ $json.document_identifier || $json.body?.document_identifier }}",
+          "nativeFilename": "={{ $json.native_filename ?? $json.body?.native_filename ?? '' }}",
+          "maxBytes": 10485760,
+          "timeoutMs": 60000
+        }
+      },
+      {
+        "id": "patent-stream-note",
+        "name": "Streaming Boundary",
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          -650,
+          -300
+        ],
+        "parameters": {
+          "width": 800,
+          "height": 230,
+          "content": "## Local candidate — deploy node package before this workflow\nInstall custom-nodes/n8n-nodes-patent-research into the reviewed n8n runtime. Reuse the existing USPTO Header Auth credential; do not put its value in expressions.\n\nCaps each body as chunks arrive (10 MiB maximum), enforces a single 60-second deadline, checks actual MIME/length/signature, rejects nonpublic DNS and pins the resolved IP. Follows one exact USPTO signed redirect without the API key. Signed URLs never become node outputs. At most two in-flight originals per process; no automatic retries.\n\nReturns the same identity-bound PDF/DOCX envelope. No normalization, corpus indexing or legal verification is implied."
+        }
+      }
+    ],
+    "connections": {
+      "When Called by Another Workflow": {
+        "main": [
+          [
+            {
+              "node": "Stream and Verify USPTO Original",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  },
+  {
+    "id": "patent-research-application-pdf",
+    "name": "Patent Research — Application PDF (authenticated gateway)",
+    "description": null,
+    "active": false,
+    "nodes": [
+      {
+        "id": "bfd484bb-cb1c-480a-afb7-b69a679c1662",
+        "name": "Research Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          -650,
+          0
+        ],
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "patent-research-application-pdf",
+          "authentication": "headerAuth",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "webhookId": "ed5b0f2f-4064-41d1-bd44-704e90b008bd",
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "REPLACE_WITH_GATEWAY_CREDENTIAL_ID",
+            "name": "Research Gateway - Inbound Header Auth"
+          }
+        }
+      },
+      {
+        "id": "b1ba4e87-006f-46a4-ba80-0dde11d30f94",
+        "name": "Call Shared Source Tool",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "workflowId": {
+            "__rl": true,
+            "value": "patent-research-application-pdf-core",
+            "mode": "id"
+          },
+          "mode": "each",
+          "options": {
+            "waitForSubWorkflow": true
+          }
+        }
+      },
+      {
+        "id": "c8d3dfdf-6739-49ab-9fef-c16e32cc6a14",
+        "name": "Return Result",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.4,
+        "position": [
+          650,
+          0
+        ],
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json }}",
+          "options": {}
+        }
+      }
+    ],
+    "connections": {
+      "Research Webhook": {
+        "main": [
+          [
+            {
+              "node": "Call Shared Source Tool",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Call Shared Source Tool": {
+        "main": [
+          [
+            {
+              "node": "Return Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  },
+  {
+    "id": "patent-research-courtlistener-core",
+    "name": "Patent Research — COURTLISTENER (callable tool)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "5a669a04-34e0-4aee-8ae1-8d5361b88d25",
+        "name": "When Called by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          -650,
+          0
+        ],
+        "parameters": {
+          "inputSource": "passthrough"
+        }
+      },
+      {
+        "id": "442cf611-dd40-44a2-91ca-d8414a4df04a",
+        "name": "Connection Settings",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [
+          -400,
+          0
+        ],
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "2a07f2c8-52a0-4c84-8c13-a1ae51ad7982",
+                "name": "sourceUrls",
+                "value": "{\"courtlistener\":\"https://www.courtlistener.com/api/rest/v4/search/\"}",
+                "type": "string"
+              },
+              {
+                "id": "efce825b-e854-41c1-8d63-7a9b86391c11",
+                "name": "internalUseAgreementConfirmed",
+                "value": true,
+                "type": "boolean"
+              }
+            ]
+          },
+          "includeOtherFields": true,
+          "options": {}
+        }
+      },
+      {
+        "id": "d048ce4b-6b5a-4669-a784-d57f9172a5d8",
+        "name": "Validate Source Request",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -120,
+          0
+        ],
+        "parameters": {
+          "jsCode": "function validateWorkflowSource(j,route){\n  const b=j.source?j:j.body||{};\n  const urls=JSON.parse(j.sourceUrls),base=urls[b.source];\n  if(typeof base!=='string')throw new Error('Source not configured');\n  let url=b.url||base;\n  const allowed=/^https:\\/\\/(?:www\\.cafc\\.uscourts\\.gov|www\\.uspto\\.gov|api\\.uspto\\.gov|api\\.govinfo\\.gov|www\\.courtlistener\\.com|ops\\.epo\\.org)\\//;\n  if(typeof url!=='string'||!allowed.test(base)||!allowed.test(url)||/[\\s\\\\#\\u0000-\\u001f\\u007f]/.test(url))throw new Error('Unapproved source URL');\n  const requestPath=url.split('?')[0];\n  if(route==='epo'){\n    const suffix=requestPath.slice(base.length);\n    if(!requestPath.startsWith(base)||!/^\\/published-data\\/publication\\/epodoc\\/[A-Z]{2}[0-9]{1,14}[A-Z]?[0-9]?\\/biblio$/.test(suffix))throw new Error('Invalid EPO lookup');\n  }else if(requestPath!==base)throw new Error('Unapproved source path');\n  if(route==='courtlistener'&&!j.internalUseAgreementConfirmed)throw new Error('Confirm internal-tool use agreement in Connection Settings');\n  const method=route==='govinfo'||b.source==='odp'?'POST':'GET';\n  if((b.method||'GET')!==method)throw new Error('Method not allowed');\n  if(JSON.stringify(b).length>16000)throw new Error('Request too large');\n  if(b.source==='odp'){\n    const {q,pagination}=b.body||{};\n    if(typeof q!=='string'||!q.trim()||q.length>2000||!Number.isSafeInteger(pagination?.offset)||pagination.offset<0||!Number.isSafeInteger(pagination?.limit)||pagination.limit<1||pagination.limit>100)throw new Error('Invalid USPTO query or pagination');\n  }\n  if(route==='govinfo'){\n    const body=b.body;\n    if(!body||Array.isArray(body)||typeof body!=='object')throw new Error('Invalid GovInfo request body');\n    const keys=Object.keys(body).sort().join(',');\n    if(keys!=='offsetMark,pageSize,query,sorts')throw new Error('Unexpected GovInfo request fields');\n    if(typeof body.query!=='string'||!body.query.startsWith('collection:USCOURTS ')||!body.query.slice(20).trim()||body.query.length>2020)throw new Error('GovInfo query must target USCOURTS');\n    if(typeof body.pageSize!=='string'||!/^\\d{1,3}$/.test(body.pageSize)||Number(body.pageSize)<1||Number(body.pageSize)>100)throw new Error('Invalid GovInfo page size');\n    if(typeof body.offsetMark!=='string'||!body.offsetMark||body.offsetMark.length>2000||/[\\u0000-\\u001f\\u007f]/.test(body.offsetMark))throw new Error('Invalid GovInfo offset mark');\n    if(!Array.isArray(body.sorts)||body.sorts.length!==1||Object.keys(body.sorts[0]||{}).sort().join(',')!=='field,sortOrder'||body.sorts[0].field!=='score'||body.sorts[0].sortOrder!=='DESC')throw new Error('Invalid GovInfo sort');\n  }\n  if(route==='courtlistener'){\n    const query=url.slice(base.length+1);\n    if(!url.startsWith(base+'?')||!query)throw new Error('Invalid CourtListener query');\n    const values={};\n    for(const part of query.split('&')){\n      const pair=part.split('=');\n      if(pair.length!==2)throw new Error('Invalid CourtListener query');\n      let key,value;try{key=decodeURIComponent(pair[0].replace(/\\+/g,' '));value=decodeURIComponent(pair[1].replace(/\\+/g,' '));}catch{throw new Error('Invalid CourtListener query encoding');}\n      if(!['q','type','cursor'].includes(key)||Object.prototype.hasOwnProperty.call(values,key))throw new Error('Unexpected CourtListener query field');\n      values[key]=value;\n    }\n    if(typeof values.q!=='string'||!values.q.trim()||values.q.length>2000||values.type!=='o'||(values.cursor!==undefined&&(!values.cursor||values.cursor.length>2000)))throw new Error('Invalid CourtListener search parameters');\n    url=base+'?q='+encodeURIComponent(values.q)+'&type=o'+(values.cursor===undefined?'':'&cursor='+encodeURIComponent(values.cursor));\n  }\n  return {url,method,body:b.body||{}};\n};return [{json:validateWorkflowSource($input.first().json,'courtlistener')}];"
+        }
+      },
+      {
+        "id": "6ae340cf-5dfd-435b-af9e-11ee24c615e2",
+        "name": "Provider — select credential here",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          350,
+          0
+        ],
+        "parameters": {
+          "method": "={{ $json.method }}",
+          "url": "={{ $json.url }}",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth",
+          "options": {
+            "timeout": 60000,
+            "redirect": {
+              "redirect": {
+                "followRedirects": false
+              }
+            },
+            "response": {
+              "response": {
+                "fullResponse": true,
+                "neverError": true,
+                "responseFormat": "text"
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "08446e88-004b-46cd-a8ee-8bf0b6ccba24",
+        "name": "Package Source Response",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          500,
+          0
+        ],
+        "parameters": {
+          "jsCode": "const r=$input.first().json;const body=r.body??r.data;if(body===undefined)throw new Error('Source response envelope changed');const text=typeof body==='string'?body:JSON.stringify(body);if(text.length>6000000)throw new Error('Source response too large');return [{json:{text,status:r.statusCode,contentType:r.headers?.['content-type']||''}}];"
+        }
+      }
+    ],
+    "connections": {
+      "When Called by Another Workflow": {
+        "main": [
+          [
+            {
+              "node": "Connection Settings",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Connection Settings": {
+        "main": [
+          [
+            {
+              "node": "Validate Source Request",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Validate Source Request": {
+        "main": [
+          [
+            {
+              "node": "Provider — select credential here",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Provider — select credential here": {
+        "main": [
+          [
+            {
+              "node": "Package Source Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  },
+  {
+    "id": "patent-research-courtlistener",
+    "name": "Patent Research — COURTLISTENER (MCP gateway)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "044d8a46-c924-4bd6-919d-5b42996562de",
+        "name": "Research Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          -650,
+          0
+        ],
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "patent-research-courtlistener",
+          "authentication": "headerAuth",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "webhookId": "aedb1d9d-daf0-4bfb-830c-79a8611e91eb",
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "REPLACE_WITH_GATEWAY_CREDENTIAL_ID",
+            "name": "Research Gateway - Inbound Header Auth"
+          }
+        }
+      },
+      {
+        "id": "291154c6-d501-432a-bd46-99a804ad4f71",
+        "name": "Call Shared Source Tool",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "workflowId": {
+            "__rl": true,
+            "value": "patent-research-courtlistener-core",
+            "mode": "id"
+          },
+          "mode": "each",
+          "options": {
+            "waitForSubWorkflow": true
+          }
+        }
+      },
+      {
+        "id": "59aba713-4ee7-4dfd-925e-efd46523cedc",
+        "name": "Return Result",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.4,
+        "position": [
+          650,
+          0
+        ],
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json }}",
+          "options": {}
+        }
+      }
+    ],
+    "connections": {
+      "Research Webhook": {
+        "main": [
+          [
+            {
+              "node": "Call Shared Source Tool",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Call Shared Source Tool": {
+        "main": [
+          [
+            {
+              "node": "Return Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  },
+  {
+    "id": "patent-research-epo-core",
+    "name": "Patent Research — EPO OPS (callable tool)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "dd4abf39-711e-4c8f-9dbe-2931f0868f42",
+        "name": "When Called by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          -650,
+          0
+        ],
+        "parameters": {
+          "inputSource": "passthrough"
+        }
+      },
+      {
+        "id": "623006af-5639-4793-bbc4-beaa28f74b5a",
+        "name": "Connection Settings",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [
+          -400,
+          0
+        ],
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "79ce5cf4-d1c0-49b3-9a9a-caccde74d67a",
+                "name": "sourceUrls",
+                "value": "{\"epo\":\"https://ops.epo.org/3.2/rest-services\"}",
+                "type": "string"
+              }
+            ]
+          },
+          "includeOtherFields": true,
+          "options": {}
+        }
+      },
+      {
+        "id": "86f7e272-db4f-4fb7-afb5-6487ebdc1d1f",
+        "name": "Validate Source Request",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -120,
+          0
+        ],
+        "parameters": {
+          "jsCode": "function validateWorkflowSource(j,route){\n  const b=j.source?j:j.body||{};\n  const urls=JSON.parse(j.sourceUrls),base=urls[b.source];\n  if(typeof base!=='string')throw new Error('Source not configured');\n  let url=b.url||base;\n  const allowed=/^https:\\/\\/(?:www\\.cafc\\.uscourts\\.gov|www\\.uspto\\.gov|api\\.uspto\\.gov|api\\.govinfo\\.gov|www\\.courtlistener\\.com|ops\\.epo\\.org)\\//;\n  if(typeof url!=='string'||!allowed.test(base)||!allowed.test(url)||/[\\s\\\\#\\u0000-\\u001f\\u007f]/.test(url))throw new Error('Unapproved source URL');\n  const requestPath=url.split('?')[0];\n  if(route==='epo'){\n    const suffix=requestPath.slice(base.length);\n    if(url!==requestPath)throw new Error('EPO lookup must not contain query parameters');\n    if(!requestPath.startsWith(base))throw new Error('EPO lookup does not match the configured source');\n    if(!/^\\/published-data\\/publication\\/epodoc\\/[A-Z]{2}[0-9]{1,14}(?:\\.?[A-Z][0-9]?)?\\/biblio$/.test(suffix))throw new Error('Invalid EPO publication path');\n  }else if(requestPath!==base)throw new Error('Unapproved source path');\n  if(route==='courtlistener'&&!j.internalUseAgreementConfirmed)throw new Error('Confirm internal-tool use agreement in Connection Settings');\n  const method=route==='govinfo'||b.source==='odp'?'POST':'GET';\n  if((b.method||'GET')!==method)throw new Error('Method not allowed');\n  if(JSON.stringify(b).length>16000)throw new Error('Request too large');\n  if(b.source==='odp'){\n    const {q,pagination}=b.body||{};\n    if(typeof q!=='string'||!q.trim()||q.length>2000||!Number.isSafeInteger(pagination?.offset)||pagination.offset<0||!Number.isSafeInteger(pagination?.limit)||pagination.limit<1||pagination.limit>100)throw new Error('Invalid USPTO query or pagination');\n  }\n  if(route==='govinfo'){\n    const body=b.body;\n    if(!body||Array.isArray(body)||typeof body!=='object')throw new Error('Invalid GovInfo request body');\n    const keys=Object.keys(body).sort().join(',');\n    if(keys!=='offsetMark,pageSize,query,sorts')throw new Error('Unexpected GovInfo request fields');\n    if(typeof body.query!=='string'||!body.query.startsWith('collection:USCOURTS ')||!body.query.slice(20).trim()||body.query.length>2020)throw new Error('GovInfo query must target USCOURTS');\n    if(typeof body.pageSize!=='string'||!/^\\d{1,3}$/.test(body.pageSize)||Number(body.pageSize)<1||Number(body.pageSize)>100)throw new Error('Invalid GovInfo page size');\n    if(typeof body.offsetMark!=='string'||!body.offsetMark||body.offsetMark.length>2000||/[\\u0000-\\u001f\\u007f]/.test(body.offsetMark))throw new Error('Invalid GovInfo offset mark');\n    if(!Array.isArray(body.sorts)||body.sorts.length!==1||Object.keys(body.sorts[0]||{}).sort().join(',')!=='field,sortOrder'||body.sorts[0].field!=='score'||body.sorts[0].sortOrder!=='DESC')throw new Error('Invalid GovInfo sort');\n  }\n  if(route==='courtlistener'){\n    const query=url.slice(base.length+1);\n    if(!url.startsWith(base+'?')||!query)throw new Error('Invalid CourtListener query');\n    const values={};\n    for(const part of query.split('&')){\n      const pair=part.split('=');\n      if(pair.length!==2)throw new Error('Invalid CourtListener query');\n      let key,value;try{key=decodeURIComponent(pair[0].replace(/\\+/g,' '));value=decodeURIComponent(pair[1].replace(/\\+/g,' '));}catch{throw new Error('Invalid CourtListener query encoding');}\n      if(!['q','type','cursor'].includes(key)||Object.prototype.hasOwnProperty.call(values,key))throw new Error('Unexpected CourtListener query field');\n      values[key]=value;\n    }\n    if(typeof values.q!=='string'||!values.q.trim()||values.q.length>2000||values.type!=='o'||(values.cursor!==undefined&&(!values.cursor||values.cursor.length>2000)))throw new Error('Invalid CourtListener search parameters');\n    url=base+'?q='+encodeURIComponent(values.q)+'&type=o'+(values.cursor===undefined?'':'&cursor='+encodeURIComponent(values.cursor));\n  }\n  return {url,method,body:b.body||{}};\n};return [{json:validateWorkflowSource($input.first().json,'epo')}];"
+        }
+      },
+      {
+        "id": "2b965b46-2054-4b24-8254-beb1d9299554",
+        "name": "Provider — select EPO OAuth2 API credential",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          350,
+          0
+        ],
+        "parameters": {
+          "method": "={{ $json.method }}",
+          "url": "={{ $json.url }}",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "oAuth2Api",
+          "options": {
+            "timeout": 25000,
+            "redirect": {
+              "redirect": {
+                "followRedirects": false
+              }
+            },
+            "response": {
+              "response": {
+                "fullResponse": true,
+                "neverError": true,
+                "responseFormat": "text"
+              }
+            }
+          },
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Accept",
+                "value": "application/exchange+xml"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "07b567d4-7d52-4dd3-9779-4119991337e3",
+        "name": "Package Source Response",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          500,
+          0
+        ],
+        "parameters": {
+          "jsCode": "const r=$input.first().json;const body=r.body??r.data;if(body===undefined)throw new Error('Source response envelope changed');const text=typeof body==='string'?body:JSON.stringify(body);if(text.length>6000000)throw new Error('Source response too large');return [{json:{text,status:r.statusCode,contentType:r.headers?.['content-type']||''}}];"
+        }
+      }
+    ],
+    "connections": {
+      "When Called by Another Workflow": {
+        "main": [
+          [
+            {
+              "node": "Connection Settings",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Connection Settings": {
+        "main": [
+          [
+            {
+              "node": "Validate Source Request",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Validate Source Request": {
+        "main": [
+          [
+            {
+              "node": "Provider — select EPO OAuth2 API credential",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Provider — select EPO OAuth2 API credential": {
+        "main": [
+          [
+            {
+              "node": "Package Source Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  },
+  {
+    "id": "patent-research-epo",
+    "name": "Patent Research — EPO OPS (MCP gateway)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "4668bf94-d821-40b6-9327-0699b04ec95b",
+        "name": "Research Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          -650,
+          0
+        ],
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "patent-research-epo",
+          "authentication": "headerAuth",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "webhookId": "cedcd8f0-ff85-43df-9164-4dac01685d12",
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "REPLACE_WITH_GATEWAY_CREDENTIAL_ID",
+            "name": "Research Gateway - Inbound Header Auth"
+          }
+        }
+      },
+      {
+        "id": "6591c966-2561-489b-bd4a-ad5c9f9ff346",
+        "name": "Call Shared Source Tool",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "workflowId": {
+            "__rl": true,
+            "value": "patent-research-epo-core",
+            "mode": "id"
+          },
+          "mode": "each",
+          "options": {
+            "waitForSubWorkflow": true
+          }
+        }
+      },
+      {
+        "id": "99b95caf-5da7-47b9-b142-71f235fa98e0",
+        "name": "Return Result",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.4,
+        "position": [
+          650,
+          0
+        ],
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json }}",
+          "options": {}
+        }
+      }
+    ],
+    "connections": {
+      "Research Webhook": {
+        "main": [
+          [
+            {
+              "node": "Call Shared Source Tool",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Call Shared Source Tool": {
+        "main": [
+          [
+            {
+              "node": "Return Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  },
+  {
+    "id": "patent-research-examiner-bigquery-core",
+    "name": "Patent Research — PatEx examiner dry run (callable tool)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "6f21dd90-dc76-4143-9cc0-1c15e667fcc6",
+        "name": "When Called by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          -700,
+          0
+        ],
+        "parameters": {
+          "inputSource": "passthrough"
+        }
+      },
+      {
+        "id": "7e5ef070-0c1a-467e-b3c6-07d01211cf02",
+        "name": "Capped Sandbox Policy",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [
+          -470,
+          0
+        ],
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "19be4326-71dc-4f0d-9ca2-d316b0097b00",
+                "name": "projectId",
+                "type": "string",
+                "value": "REPLACE_WITH_YOUR_PROJECT_ID"
+              },
+              {
+                "id": "413f8f37-c031-4986-8062-409863e6c7eb",
+                "name": "executionEnabled",
+                "type": "boolean",
+                "value": false
+              },
+              {
+                "id": "487fe944-9f20-4016-8a47-a0335b32b43c",
+                "name": "billingMode",
+                "type": "string",
+                "value": "sandbox-no-billing"
+              },
+              {
+                "id": "044360db-9075-4255-a70a-99d6a1e681a9",
+                "name": "maximumBytesBilled",
+                "type": "string",
+                "value": "26843545600"
+              }
+            ]
+          },
+          "includeOtherFields": true,
+          "options": {}
+        }
+      },
+      {
+        "id": "187b8f02-cff1-42f0-b67f-ce4683a4521a",
+        "name": "Build Fixed PatEx Examiner Dry Run",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -220,
+          0
+        ],
+        "parameters": {
+          "jsCode": "\nconst j=$input.first().json,b=j.body||j;\nif(j.executionEnabled!==false||j.billingMode!=='sandbox-no-billing')throw new Error('PatEx sandbox policy mismatch');\nif(!/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(j.projectId))throw new Error('Set the isolated Google Cloud project ID');\nif(!['examiner','art-unit'].includes(b.scope))throw new Error('Scope must be examiner or art-unit');\nconst from=Number(b.from),to=Number(b.to);if(!Number.isInteger(from)||!Number.isInteger(to)||from<1900||to>new Date().getUTCFullYear()+1||from>to||to-from>30)throw new Error('Invalid year range');\nlet value;if(b.scope==='examiner'){value=String(b.value||b.examiner||'').trim().replace(/\\s+/g,' ').toUpperCase();if(value.length<3||value.length>120||!/^[\\p{L}\\p{N} .,'’-]+$/u.test(value))throw new Error('Supply the exact PatEx examiner name');}else{value=String(b.value||b.artUnit||'').trim();if(!/^\\d{4}$/.test(value))throw new Error('Art unit must contain four digits');}\nconst query=\"\\nWITH raw AS (\\n  SELECT application_number, examiner_name_last, examiner_name_first, examiner_name_middle, examiner_id, examiner_art_unit, disposal_type,\\n    COALESCE(SAFE.PARSE_DATE('%Y-%m-%d', filing_date), SAFE.PARSE_DATE('%Y%m%d', filing_date), SAFE.PARSE_DATE('%m/%d/%Y', filing_date)) AS filing_date_parsed,\\n    COALESCE(SAFE.PARSE_DATE('%Y-%m-%d', patent_issue_date), SAFE.PARSE_DATE('%Y%m%d', patent_issue_date), SAFE.PARSE_DATE('%m/%d/%Y', patent_issue_date)) AS patent_issue_date_parsed,\\n    COALESCE(SAFE.PARSE_DATE('%Y-%m-%d', abandon_date), SAFE.PARSE_DATE('%Y%m%d', abandon_date), SAFE.PARSE_DATE('%m/%d/%Y', abandon_date)) AS abandon_date_parsed\\n  FROM `patents-public-data.uspto_oce_pair.application_data`\\n  WHERE application_type = 'REGULAR' AND invention_subject_matter = 'UTL'\\n),\\neligible AS (\\n  SELECT * EXCEPT(filing_date_parsed, patent_issue_date_parsed, abandon_date_parsed),\\n    IF(filing_date_parsed BETWEEN DATE '1900-01-01' AND @data_cutoff, filing_date_parsed, NULL) AS filing_date,\\n    IF(patent_issue_date_parsed BETWEEN DATE '1900-01-01' AND @data_cutoff, patent_issue_date_parsed, NULL) AS patent_issue_date,\\n    IF(abandon_date_parsed BETWEEN DATE '1900-01-01' AND @data_cutoff, abandon_date_parsed, NULL) AS abandon_date,\\n    COUNTIF(filing_date_parsed IS NOT NULL AND NOT (filing_date_parsed BETWEEN DATE '1900-01-01' AND @data_cutoff)) OVER () AS invalid_filing_dates,\\n    COUNTIF(patent_issue_date_parsed IS NOT NULL AND NOT (patent_issue_date_parsed BETWEEN DATE '1900-01-01' AND @data_cutoff)) OVER () AS invalid_issue_dates,\\n    COUNTIF(abandon_date_parsed IS NOT NULL AND NOT (abandon_date_parsed BETWEEN DATE '1900-01-01' AND @data_cutoff)) OVER () AS invalid_abandon_dates\\n  FROM raw\\n),\\nbounds AS (\\n  SELECT MAX(filing_date) AS max_filing_date, MAX(COALESCE(patent_issue_date, abandon_date)) AS max_disposal_date,\\n    MAX(invalid_filing_dates) AS invalid_filing_dates, MAX(invalid_issue_dates) AS invalid_issue_dates, MAX(invalid_abandon_dates) AS invalid_abandon_dates FROM eligible\\n),\\nscoped AS (\\n  SELECT application_number, disposal_type,\\n    CASE WHEN disposal_type = 'ISS' THEN EXTRACT(YEAR FROM patent_issue_date) WHEN disposal_type = 'ABN' THEN EXTRACT(YEAR FROM abandon_date) END AS disposal_year\\n  FROM eligible\\n  WHERE disposal_type IN ('ISS', 'ABN')\\n    AND ((@scope_type = 'examiner' AND UPPER(TRIM(REGEXP_REPLACE(CONCAT(COALESCE(examiner_name_last, ''), ', ', COALESCE(examiner_name_first, ''), ' ', COALESCE(examiner_name_middle, '')), r'\\\\s+', ' '))) = @scope_value) OR (@scope_type = 'art-unit' AND TRIM(examiner_art_unit) = @scope_value))\\n),\\nyearly AS (\\n  SELECT disposal_year AS year,\\n    COUNT(DISTINCT IF(disposal_type = 'ISS', application_number, NULL)) AS issued,\\n    COUNT(DISTINCT IF(disposal_type = 'ABN', application_number, NULL)) AS abandoned\\n  FROM scoped WHERE disposal_year BETWEEN @from_year AND @to_year GROUP BY year\\n)\\nSELECT year, COALESCE(issued, 0) AS issued, COALESCE(abandoned, 0) AS abandoned, bounds.max_filing_date, bounds.max_disposal_date,\\n  bounds.invalid_filing_dates, bounds.invalid_issue_dates, bounds.invalid_abandon_dates\\nFROM UNNEST(GENERATE_ARRAY(@from_year, @to_year)) AS year CROSS JOIN bounds LEFT JOIN yearly USING (year) ORDER BY year\";\nconst fixed={query,useLegacySql:false,parameterMode:'NAMED',queryParameters:[{name:'scope_type',parameterType:{type:'STRING'},parameterValue:{value:b.scope}},{name:'scope_value',parameterType:{type:'STRING'},parameterValue:{value}},{name:'from_year',parameterType:{type:'INT64'},parameterValue:{value:String(from)}},{name:'to_year',parameterType:{type:'INT64'},parameterValue:{value:String(to)}},{name:'data_cutoff',parameterType:{type:'DATE'},parameterValue:{value:new Date().toISOString().slice(0,10)}}]};\nconst request={configuration:{dryRun:true,query:fixed}};\nreturn [{json:{url:'https://bigquery.googleapis.com/bigquery/v2/projects/'+j.projectId+'/jobs',metadataUrl:'https://bigquery.googleapis.com/bigquery/v2/projects/patents-public-data/datasets/uspto_oce_pair/tables/application_data',request,maximumBytesBilled:j.maximumBytesBilled}}];"
+        }
+      },
+      {
+        "id": "696510ed-ed36-4954-be53-c76b0451f3cd",
+        "name": "Read hosted PatEx schema for dry run",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          20,
+          0
+        ],
+        "parameters": {
+          "method": "GET",
+          "url": "={{ $json.metadataUrl }}",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "googleBigQueryOAuth2Api",
+          "options": {
+            "timeout": 180000,
+            "redirect": {
+              "redirect": {
+                "followRedirects": false
+              }
+            },
+            "response": {
+              "response": {
+                "fullResponse": true,
+                "neverError": true,
+                "responseFormat": "json"
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "5f6e2f9c-cd97-47e3-9ab7-05d7385158b9",
+        "name": "Attach hosted PatEx schema",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          270,
+          0
+        ],
+        "parameters": {
+          "jsCode": "const r=$input.first().json,b=r.body??r.data??{},built=$('Build Fixed PatEx Examiner Dry Run').first().json,t=b.tableReference,cutoff=new Date(Number(b.lastModifiedTime)).toISOString().slice(0,10),p=built.request.configuration.query.queryParameters.find(x=>x.name==='data_cutoff');if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(cutoff)||!p)throw new Error('Hosted PatEx cutoff could not be derived');p.parameterValue.value=cutoff;return [{json:{...built,tableMetadataStatus:r.statusCode,tableMetadata:{projectId:t?.projectId,datasetId:t?.datasetId,tableId:t?.tableId,lastModifiedTime:b.lastModifiedTime,numRows:b.numRows,numBytes:b.numBytes,schema:(b.schema?.fields||[]).map(f=>({name:f.name,type:f.type,mode:f.mode}))}}}];"
+        }
+      },
+      {
+        "id": "578d97b6-aaf9-43fd-ad8a-1a0fd499efa6",
+        "name": "BigQuery — select dedicated OAuth credential",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          520,
+          0
+        ],
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $json.url }}",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "googleBigQueryOAuth2Api",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ $json.request }}",
+          "options": {
+            "timeout": 180000,
+            "redirect": {
+              "redirect": {
+                "followRedirects": false
+              }
+            },
+            "response": {
+              "response": {
+                "fullResponse": true,
+                "neverError": true,
+                "responseFormat": "json"
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "a700a63c-ec27-41b4-b855-0b0c8cfd099e",
+        "name": "Return PatEx Dry Run Estimate",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          790,
+          0
+        ],
+        "parameters": {
+          "jsCode": "const r=$input.first().json,b=r.body??r.data??{},meta=$('Attach hosted PatEx schema').first().json;return [{json:{status:r.statusCode,dryRun:true,executedDataQuery:false,jobReference:b.jobReference,statistics:b.statistics,error:b.error,errors:b.errors,tableMetadataStatus:meta.tableMetadataStatus,tableMetadata:meta.tableMetadata,warning:'This checks the fixed PatEx query and estimated bytes only.'}}];"
+        }
+      }
+    ],
+    "connections": {
+      "When Called by Another Workflow": {
+        "main": [
+          [
+            {
+              "node": "Capped Sandbox Policy",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Capped Sandbox Policy": {
+        "main": [
+          [
+            {
+              "node": "Build Fixed PatEx Examiner Dry Run",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Fixed PatEx Examiner Dry Run": {
+        "main": [
+          [
+            {
+              "node": "Read hosted PatEx schema for dry run",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Read hosted PatEx schema for dry run": {
+        "main": [
+          [
+            {
+              "node": "Attach hosted PatEx schema",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Attach hosted PatEx schema": {
+        "main": [
+          [
+            {
+              "node": "BigQuery — select dedicated OAuth credential",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "BigQuery — select dedicated OAuth credential": {
+        "main": [
+          [
+            {
+              "node": "Return PatEx Dry Run Estimate",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  },
+  {
+    "id": "patent-research-examiner-bigquery-query-core",
+    "name": "Patent Research — PatEx examiner outcomes (callable tool)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "26d02d52-2809-4265-8627-c7e036503d23",
+        "name": "When Called by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          -820,
+          0
+        ],
+        "parameters": {
+          "inputSource": "passthrough"
+        }
+      },
+      {
+        "id": "ff51f600-8a9d-4c81-9034-2be31a224c58",
+        "name": "Capped Sandbox Policy",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [
+          -600,
+          0
+        ],
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "2f72c54e-ed66-4865-892c-bfc71486ee30",
+                "name": "projectId",
+                "type": "string",
+                "value": "REPLACE_WITH_YOUR_PROJECT_ID"
+              },
+              {
+                "id": "382be7ae-1862-4765-a778-b57bdff73992",
+                "name": "executionEnabled",
+                "type": "boolean",
+                "value": true
+              },
+              {
+                "id": "1257ff9b-c86e-4c00-b887-38515b52ad8a",
+                "name": "billingMode",
+                "type": "string",
+                "value": "sandbox-no-billing"
+              },
+              {
+                "id": "1e4b9b04-ba78-4b6c-a038-ebe0dbaea079",
+                "name": "maximumBytesBilled",
+                "type": "string",
+                "value": "26843545600"
+              }
+            ]
+          },
+          "includeOtherFields": true,
+          "options": {}
+        }
+      },
+      {
+        "id": "78b5d301-e907-4295-bd7d-eb960596b30a",
+        "name": "Build Fixed PatEx Examiner Query",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -350,
+          0
+        ],
+        "parameters": {
+          "jsCode": "\nconst j=$input.first().json,b=j.body||j;\nif(j.executionEnabled!==true||j.billingMode!=='sandbox-no-billing')throw new Error('PatEx sandbox policy mismatch');\nif(!/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(j.projectId))throw new Error('Set the isolated Google Cloud project ID');\nif(!['examiner','art-unit'].includes(b.scope))throw new Error('Scope must be examiner or art-unit');\nconst from=Number(b.from),to=Number(b.to);if(!Number.isInteger(from)||!Number.isInteger(to)||from<1900||to>new Date().getUTCFullYear()+1||from>to||to-from>30)throw new Error('Invalid year range');\nlet value;if(b.scope==='examiner'){value=String(b.value||b.examiner||'').trim().replace(/\\s+/g,' ').toUpperCase();if(value.length<3||value.length>120||!/^[\\p{L}\\p{N} .,'’-]+$/u.test(value))throw new Error('Supply the exact PatEx examiner name');}else{value=String(b.value||b.artUnit||'').trim();if(!/^\\d{4}$/.test(value))throw new Error('Art unit must contain four digits');}\nconst query=\"\\nWITH raw AS (\\n  SELECT application_number, examiner_name_last, examiner_name_first, examiner_name_middle, examiner_id, examiner_art_unit, disposal_type,\\n    COALESCE(SAFE.PARSE_DATE('%Y-%m-%d', filing_date), SAFE.PARSE_DATE('%Y%m%d', filing_date), SAFE.PARSE_DATE('%m/%d/%Y', filing_date)) AS filing_date_parsed,\\n    COALESCE(SAFE.PARSE_DATE('%Y-%m-%d', patent_issue_date), SAFE.PARSE_DATE('%Y%m%d', patent_issue_date), SAFE.PARSE_DATE('%m/%d/%Y', patent_issue_date)) AS patent_issue_date_parsed,\\n    COALESCE(SAFE.PARSE_DATE('%Y-%m-%d', abandon_date), SAFE.PARSE_DATE('%Y%m%d', abandon_date), SAFE.PARSE_DATE('%m/%d/%Y', abandon_date)) AS abandon_date_parsed\\n  FROM `patents-public-data.uspto_oce_pair.application_data`\\n  WHERE application_type = 'REGULAR' AND invention_subject_matter = 'UTL'\\n),\\neligible AS (\\n  SELECT * EXCEPT(filing_date_parsed, patent_issue_date_parsed, abandon_date_parsed),\\n    IF(filing_date_parsed BETWEEN DATE '1900-01-01' AND @data_cutoff, filing_date_parsed, NULL) AS filing_date,\\n    IF(patent_issue_date_parsed BETWEEN DATE '1900-01-01' AND @data_cutoff, patent_issue_date_parsed, NULL) AS patent_issue_date,\\n    IF(abandon_date_parsed BETWEEN DATE '1900-01-01' AND @data_cutoff, abandon_date_parsed, NULL) AS abandon_date,\\n    COUNTIF(filing_date_parsed IS NOT NULL AND NOT (filing_date_parsed BETWEEN DATE '1900-01-01' AND @data_cutoff)) OVER () AS invalid_filing_dates,\\n    COUNTIF(patent_issue_date_parsed IS NOT NULL AND NOT (patent_issue_date_parsed BETWEEN DATE '1900-01-01' AND @data_cutoff)) OVER () AS invalid_issue_dates,\\n    COUNTIF(abandon_date_parsed IS NOT NULL AND NOT (abandon_date_parsed BETWEEN DATE '1900-01-01' AND @data_cutoff)) OVER () AS invalid_abandon_dates\\n  FROM raw\\n),\\nbounds AS (\\n  SELECT MAX(filing_date) AS max_filing_date, MAX(COALESCE(patent_issue_date, abandon_date)) AS max_disposal_date,\\n    MAX(invalid_filing_dates) AS invalid_filing_dates, MAX(invalid_issue_dates) AS invalid_issue_dates, MAX(invalid_abandon_dates) AS invalid_abandon_dates FROM eligible\\n),\\nscoped AS (\\n  SELECT application_number, disposal_type,\\n    CASE WHEN disposal_type = 'ISS' THEN EXTRACT(YEAR FROM patent_issue_date) WHEN disposal_type = 'ABN' THEN EXTRACT(YEAR FROM abandon_date) END AS disposal_year\\n  FROM eligible\\n  WHERE disposal_type IN ('ISS', 'ABN')\\n    AND ((@scope_type = 'examiner' AND UPPER(TRIM(REGEXP_REPLACE(CONCAT(COALESCE(examiner_name_last, ''), ', ', COALESCE(examiner_name_first, ''), ' ', COALESCE(examiner_name_middle, '')), r'\\\\s+', ' '))) = @scope_value) OR (@scope_type = 'art-unit' AND TRIM(examiner_art_unit) = @scope_value))\\n),\\nyearly AS (\\n  SELECT disposal_year AS year,\\n    COUNT(DISTINCT IF(disposal_type = 'ISS', application_number, NULL)) AS issued,\\n    COUNT(DISTINCT IF(disposal_type = 'ABN', application_number, NULL)) AS abandoned\\n  FROM scoped WHERE disposal_year BETWEEN @from_year AND @to_year GROUP BY year\\n)\\nSELECT year, COALESCE(issued, 0) AS issued, COALESCE(abandoned, 0) AS abandoned, bounds.max_filing_date, bounds.max_disposal_date,\\n  bounds.invalid_filing_dates, bounds.invalid_issue_dates, bounds.invalid_abandon_dates\\nFROM UNNEST(GENERATE_ARRAY(@from_year, @to_year)) AS year CROSS JOIN bounds LEFT JOIN yearly USING (year) ORDER BY year\";\nconst fixed={query,useLegacySql:false,parameterMode:'NAMED',queryParameters:[{name:'scope_type',parameterType:{type:'STRING'},parameterValue:{value:b.scope}},{name:'scope_value',parameterType:{type:'STRING'},parameterValue:{value}},{name:'from_year',parameterType:{type:'INT64'},parameterValue:{value:String(from)}},{name:'to_year',parameterType:{type:'INT64'},parameterValue:{value:String(to)}},{name:'data_cutoff',parameterType:{type:'DATE'},parameterValue:{value:new Date().toISOString().slice(0,10)}}]};\nconst request={...fixed,dryRun:false,useQueryCache:true,maxResults:31,timeoutMs:120000,jobTimeoutMs:'180000',maximumBytesBilled:j.maximumBytesBilled,labels:{application:'patent_research',operation:'patex_examiner_outcomes'}};\nreturn [{json:{queryUrl:'https://bigquery.googleapis.com/bigquery/v2/projects/'+j.projectId+'/queries',metadataUrl:'https://bigquery.googleapis.com/bigquery/v2/projects/patents-public-data/datasets/uspto_oce_pair/tables/application_data',request,maximumBytesBilled:j.maximumBytesBilled}}];"
+        }
+      },
+      {
+        "id": "141b0e8a-35ef-4a53-b4cf-55283dd88744",
+        "name": "Read hosted PatEx table metadata",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          -80,
+          0
+        ],
+        "parameters": {
+          "method": "GET",
+          "url": "={{ $json.metadataUrl }}",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "googleBigQueryOAuth2Api",
+          "options": {
+            "timeout": 180000,
+            "redirect": {
+              "redirect": {
+                "followRedirects": false
+              }
+            },
+            "response": {
+              "response": {
+                "fullResponse": true,
+                "neverError": true,
+                "responseFormat": "json"
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "db35ce80-c62b-40d3-a4fc-7fb691b4fba0",
+        "name": "Validate hosted PatEx table metadata",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          190,
+          0
+        ],
+        "parameters": {
+          "jsCode": "const r=$input.first().json,b=r.body??r.data??{},built=$('Build Fixed PatEx Examiner Query').first().json,t=b.tableReference,required={application_number:'STRING',filing_date:'STRING',invention_subject_matter:'STRING',application_type:'STRING',examiner_name_last:'STRING',examiner_name_first:'STRING',examiner_name_middle:'STRING',examiner_id:'STRING',examiner_art_unit:'STRING',patent_issue_date:'STRING',abandon_date:'STRING',disposal_type:'STRING'},fields=b.schema?.fields;if(r.statusCode!==200||t?.projectId!=='patents-public-data'||t?.datasetId!=='uspto_oce_pair'||t?.tableId!=='application_data'||!/^(0|[1-9]\\d*)$/.test(b.lastModifiedTime||'')||!/^(0|[1-9]\\d*)$/.test(b.numRows||'')||!/^(0|[1-9]\\d*)$/.test(b.numBytes||'')||!Array.isArray(fields)||Object.entries(required).some(([name,type])=>!fields.some(f=>f.name===name&&f.type===type)))throw new Error('Hosted PatEx table identity or schema could not be verified');const cutoff=new Date(Number(b.lastModifiedTime)).toISOString().slice(0,10),p=built.request.queryParameters.find(x=>x.name==='data_cutoff');if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(cutoff)||!p)throw new Error('Hosted PatEx cutoff could not be derived');p.parameterValue.value=cutoff;return [{json:{...built,tableMetadata:{projectId:t.projectId,datasetId:t.datasetId,tableId:t.tableId,lastModifiedTime:b.lastModifiedTime,numRows:b.numRows,numBytes:b.numBytes,schema:fields.map(f=>({name:f.name,type:f.type,mode:f.mode}))}}}];"
+        }
+      },
+      {
+        "id": "4c56d83d-fb08-445d-8cc6-93a27cbe3828",
+        "name": "Execute capped PatEx examiner query",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          470,
+          0
+        ],
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $json.queryUrl }}",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "googleBigQueryOAuth2Api",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ $json.request }}",
+          "options": {
+            "timeout": 180000,
+            "redirect": {
+              "redirect": {
+                "followRedirects": false
+              }
+            },
+            "response": {
+              "response": {
+                "fullResponse": true,
+                "neverError": true,
+                "responseFormat": "json"
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "c97b1368-e03b-405f-85ce-e38763bc35c8",
+        "name": "Return Verified PatEx Query Envelope",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          750,
+          0
+        ],
+        "parameters": {
+          "jsCode": "const r=$input.first().json,b=r.body??r.data??{},built=$('Validate hosted PatEx table metadata').first().json;return [{json:{status:r.statusCode,dryRun:false,executedDataQuery:r.statusCode===200&&b.jobComplete===true&&!b.error&&!(b.errors?.length),jobComplete:b.jobComplete===true,jobReference:b.jobReference,schema:b.schema,rows:b.rows||[],totalRows:b.totalRows,totalBytesProcessed:b.totalBytesProcessed,totalBytesBilled:b.totalBytesBilled,cacheHit:b.cacheHit===true,error:b.error,errors:b.errors,maximumBytesBilled:built.maximumBytesBilled,tableMetadataStatus:200,tableMetadata:built.tableMetadata}}];"
+        }
+      }
+    ],
+    "connections": {
+      "When Called by Another Workflow": {
+        "main": [
+          [
+            {
+              "node": "Capped Sandbox Policy",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Capped Sandbox Policy": {
+        "main": [
+          [
+            {
+              "node": "Build Fixed PatEx Examiner Query",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Fixed PatEx Examiner Query": {
+        "main": [
+          [
+            {
+              "node": "Read hosted PatEx table metadata",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Read hosted PatEx table metadata": {
+        "main": [
+          [
+            {
+              "node": "Validate hosted PatEx table metadata",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Validate hosted PatEx table metadata": {
+        "main": [
+          [
+            {
+              "node": "Execute capped PatEx examiner query",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Execute capped PatEx examiner query": {
+        "main": [
+          [
+            {
+              "node": "Return Verified PatEx Query Envelope",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  },
+  {
+    "id": "patent-research-examiner-bigquery-query",
+    "name": "Patent Research — PatEx examiner outcomes (MCP gateway)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "db98e271-3882-4ee3-9f21-fced98c434ff",
+        "name": "Research Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          -650,
+          0
+        ],
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "patent-research-examiner-bigquery-query",
+          "authentication": "headerAuth",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "webhookId": "55cb1400-6c5a-4304-b594-555de224bb07",
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "REPLACE_WITH_GATEWAY_CREDENTIAL_ID",
+            "name": "Research Gateway - Inbound Header Auth"
+          }
+        }
+      },
+      {
+        "id": "dce17b4a-641d-4ce2-b170-44f62c14bbaa",
+        "name": "Call Shared Source Tool",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "workflowId": {
+            "__rl": true,
+            "value": "patent-research-examiner-bigquery-query-core",
+            "mode": "id"
+          },
+          "mode": "each",
+          "options": {
+            "waitForSubWorkflow": true
+          }
+        }
+      },
+      {
+        "id": "4d0a31f6-6e12-4a38-a90f-a92760840bbb",
+        "name": "Return Result",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.4,
+        "position": [
+          650,
+          0
+        ],
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json }}",
+          "options": {}
+        }
+      }
+    ],
+    "connections": {
+      "Research Webhook": {
+        "main": [
+          [
+            {
+              "node": "Call Shared Source Tool",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Call Shared Source Tool": {
+        "main": [
+          [
+            {
+              "node": "Return Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  },
+  {
+    "id": "patent-research-examiner-bigquery",
+    "name": "Patent Research — PatEx examiner dry run (MCP gateway)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "a0c09072-cdae-43ba-908f-bd5b3fc11b07",
+        "name": "Research Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          -650,
+          0
+        ],
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "patent-research-examiner-bigquery",
+          "authentication": "headerAuth",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "webhookId": "2ecd1bc1-6240-4ce9-b781-b89887753d62",
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "REPLACE_WITH_GATEWAY_CREDENTIAL_ID",
+            "name": "Research Gateway - Inbound Header Auth"
+          }
+        }
+      },
+      {
+        "id": "f662a0a0-0f12-4063-afa8-c812bb34ab28",
+        "name": "Call Shared Source Tool",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "workflowId": {
+            "__rl": true,
+            "value": "patent-research-examiner-bigquery-core",
+            "mode": "id"
+          },
+          "mode": "each",
+          "options": {
+            "waitForSubWorkflow": true
+          }
+        }
+      },
+      {
+        "id": "f78f0621-a40a-49bd-8904-b323bbd819b9",
+        "name": "Return Result",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.4,
+        "position": [
+          650,
+          0
+        ],
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json }}",
+          "options": {}
+        }
+      }
+    ],
+    "connections": {
+      "Research Webhook": {
+        "main": [
+          [
+            {
+              "node": "Call Shared Source Tool",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Call Shared Source Tool": {
+        "main": [
+          [
+            {
+              "node": "Return Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  },
+  {
+    "id": "patent-research-external-access-core",
+    "name": "Patent Research — Hosted patent access links and query plans (callable tool)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "f4c10a30-6f33-425b-84f1-da6388691b75",
+        "name": "When Called by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          -600,
+          0
+        ],
+        "parameters": {
+          "inputSource": "passthrough"
+        }
+      },
+      {
+        "id": "7b67b7b6-4f5c-439e-94d6-11f3d9112679",
+        "name": "Build Provider Access",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "jsCode": "function externalAccess({source,query='',publication='',cpc='',from=2021,to=2025}={}){\n if(typeof query!=='string'||query.length>1000)throw new Error('Invalid public search query');\n if(source==='patentbots')return {source,mode:'interactive-reference',url:'https://www.patentbots.com/stats/',searchFor:query,authority:'secondary-derived-examiner-analytics',access:'Basic statistics require a free login; premium detail requires a subscription.',automaticPolling:false,reason:'Published terms prohibit systematic downloading and scraping. Use an authorized provider integration if one is agreed.',terms:'https://www.patentbots.com/terms',warning:'Grant rates, difficulty and predictions are vendor calculations, not USPTO findings.'};\n if(source==='freepatentsonline')return {source,mode:'hosted-search-link',url:'https://www.freepatentsonline.com/Search/SearchBox.html?query_txt='+encodeURIComponent(query),searchFor:query,retrieved:false,authority:'third-party-reproduction-and-metadata',access:'Website search and free account features are available. The provider separately advertises commercial API and custom data services.',automaticPolling:false,reason:'No public free API entitlement or automated polling permission has been verified.',fields:'Website search supports patent text, dates, assignees, inventors, examiner names and classifications.',warning:'Search results and vendor metadata are leads. Verify patent text and legal status against the issuing authority or the original document.',docs:'https://www.freepatentsonline.com/search.html'};\n if(source==='wipo-patentscope')return {source,mode:'interactive-reference',url:'https://patentscope.wipo.int/search/en/search.jsf',searchFor:query,retrieved:false,authority:'official-wipo-search',access:'Free website search; a free WIPO account adds saved searches and larger exports.',automaticPolling:false,reason:'No general free automation API has been established for this connector.',coverage:'PCT publications and participating national and regional collections. Coverage differs by office and field.',docs:'https://www.wipo.int/en/web/patentscope/faqs_patentscope'};\n if(source==='google-patents'){\n  if(publication){const id=publication.toUpperCase().replace(/[\\s,-]/g,'');if(!/^[A-Z]{2}\\d{4,15}[A-Z]\\d?$/.test(id))throw new Error('Use a publication identifier with kind code, for example US11244675B2');return {source,mode:'publication-link',url:'https://patents.google.com/patent/'+id+'/en',publication:id,authority:'third-party-reproduction',retrieved:false,warning:'Read the original PDF; metadata, translations and legal-status annotations are distinct from the original patent.'};}\n  return {source,mode:'hosted-search-link',url:'https://patents.google.com/?q='+encodeURIComponent(query),retrieved:false,exportLimit:'Google documents CSV export of up to the top 1000 results; this is not a complete CPC population.',help:'https://support.google.com/faqs/answer/7049588?hl=en'};\n }\n if(source==='google-bigquery'){\n  const code=cpc.toUpperCase().replace(/\\s/g,'');if(!/^[A-HY]\\d{2}[A-Z](?:\\d{1,4}\\/\\d{2,6})?$/.test(code))throw new Error('Supply a CPC subclass or full symbol');\n  if(!Number.isInteger(from)||!Number.isInteger(to)||from<1970||to<from||to>new Date().getUTCFullYear()||to-from>30)throw new Error('Invalid year range');\n  const subclass=/^[A-HY]\\d{2}[A-Z]$/.test(code);\n  const sql='SELECT DIV(publication_date,10000) AS year, COUNT(DISTINCT publication_number) AS publications\\nFROM `patents-public-data.patents.publications`\\nWHERE country_code = @country AND publication_date BETWEEN @start_date AND @end_date\\nAND EXISTS (SELECT 1 FROM UNNEST(cpc) AS c WHERE '+(subclass?'STARTS_WITH(c.code,@cpc)':'c.code=@cpc')+')\\nGROUP BY year ORDER BY year';\n  const param=(name,type,value)=>({name,parameterType:{type},parameterValue:{value:String(value)}});\n  return {source,mode:'query-plan-only',connected:false,projectRequired:true,consoleUrl:'https://console.cloud.google.com/bigquery',table:'patents-public-data.patents.publications',tableFreshness:'The table and referenced fields were live-validated on 2026-09-06. Update time and coverage still require metadata review before relying on results.',request:{configuration:{dryRun:true,query:{query:sql,useLegacySql:false,parameterMode:'NAMED',queryParameters:[param('country','STRING','US'),param('cpc','STRING',code),param('start_date','INT64',from*10000+101),param('end_date','INT64',to*10000+1231)]}}},countingUnit:'distinct US publication numbers by publication year',cpcMatch:subclass?'subclass prefix':'exact symbol',execution:'Dry-run only. Google currently provides a recurring monthly free query allowance, separate from trial credit. The connector remains unable to execute a data query until a reviewed free-only policy is added. A maximum-bytes cap belongs on a separate execution workflow after reviewing the dry-run estimate.',coverage:'Not application filing counts or patent-family counts; grants and application publications can represent the same invention. Recent unpublished applications are absent.',docs:'https://docs.cloud.google.com/bigquery/public-data'};\n }\n throw new Error('Unknown external provider');\n};const j=$input.first().json;return [{json:externalAccess(j.body||j)}];"
+        }
+      }
+    ],
+    "connections": {
+      "When Called by Another Workflow": {
+        "main": [
+          [
+            {
+              "node": "Build Provider Access",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  },
+  {
+    "id": "patent-research-external-access",
+    "name": "Patent Research — Hosted patent access links and query plans (MCP gateway)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "59fa05c8-7215-445f-9afd-83dc8d8b3adb",
+        "name": "Research Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          -650,
+          0
+        ],
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "patent-research-external-access",
+          "authentication": "headerAuth",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "webhookId": "6a55d516-2abd-469b-b847-4396a0b5e387",
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "REPLACE_WITH_GATEWAY_CREDENTIAL_ID",
+            "name": "Research Gateway - Inbound Header Auth"
+          }
+        }
+      },
+      {
+        "id": "65e95ad8-2543-4c7f-8a89-2ec781bb2ce2",
+        "name": "Call Shared Source Tool",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "workflowId": {
+            "__rl": true,
+            "value": "patent-research-external-access-core",
+            "mode": "id"
+          },
+          "mode": "each",
+          "options": {
+            "waitForSubWorkflow": true
+          }
+        }
+      },
+      {
+        "id": "e63766ea-55e7-4d63-8ca3-b09990c609e4",
+        "name": "Return Result",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.4,
+        "position": [
+          650,
+          0
+        ],
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json }}",
+          "options": {}
+        }
+      }
+    ],
+    "connections": {
+      "Research Webhook": {
+        "main": [
+          [
+            {
+              "node": "Call Shared Source Tool",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Call Shared Source Tool": {
+        "main": [
+          [
+            {
+              "node": "Return Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  },
+  {
+    "id": "patent-research-google-bigquery-core",
+    "name": "Patent Research — Google BigQuery dry run (credential setup required)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "02b39f40-5a53-4a01-845c-ea3ea42c5699",
+        "name": "When Called by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          -700,
+          -120
+        ],
+        "parameters": {
+          "inputSource": "passthrough"
+        }
+      },
+      {
+        "id": "4514f5e6-772f-4a80-9d07-b4a43575698d",
+        "name": "Manual Dry Run",
+        "type": "n8n-nodes-base.manualTrigger",
+        "typeVersion": 1,
+        "position": [
+          -700,
+          160
+        ],
+        "parameters": {}
+      },
+      {
+        "id": "8befd6c1-c72d-4f3a-8a36-28b68acee49b",
+        "name": "Manual Test Parameters",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [
+          -470,
+          160
+        ],
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "f9deea19-6dc2-4f24-a3d6-460a1750506d",
+                "name": "cpc",
+                "type": "string",
+                "value": "G06N"
+              },
+              {
+                "id": "2889eeb2-3566-4b52-b428-bb560e01091b",
+                "name": "from",
+                "type": "number",
+                "value": 2024
+              },
+              {
+                "id": "48ec1713-ff2f-408a-92ea-eaeab13dd9b1",
+                "name": "to",
+                "type": "number",
+                "value": 2024
+              }
+            ]
+          },
+          "includeOtherFields": true,
+          "options": {}
+        }
+      },
+      {
+        "id": "c740a359-8724-42cd-b559-6fa2ac6d00f1",
+        "name": "Google Cloud Connection Settings",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [
+          -230,
+          0
+        ],
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "46ff69bc-da4b-4a0d-8076-7a8ea1dca1bf",
+                "name": "projectId",
+                "type": "string",
+                "value": "REPLACE_WITH_YOUR_PROJECT_ID"
+              },
+              {
+                "id": "9ee95bbf-e6a7-4a4f-86b7-e3018a9dda2e",
+                "name": "executionEnabled",
+                "type": "boolean",
+                "value": false
+              }
+            ]
+          },
+          "includeOtherFields": true,
+          "options": {}
+        }
+      },
+      {
+        "id": "24b70823-15b4-4052-b329-0b1b56ac1bb2",
+        "name": "Build Fixed CPC Dry Run",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          20,
+          0
+        ],
+        "parameters": {
+          "jsCode": "function externalAccess({source,query='',publication='',cpc='',from=2021,to=2025}={}){\n if(typeof query!=='string'||query.length>1000)throw new Error('Invalid public search query');\n if(source==='patentbots')return {source,mode:'interactive-reference',url:'https://www.patentbots.com/stats/',searchFor:query,authority:'secondary-derived-examiner-analytics',access:'Basic statistics require a free login; premium detail requires a subscription.',automaticPolling:false,reason:'Published terms prohibit systematic downloading and scraping. Use an authorized provider integration if one is agreed.',terms:'https://www.patentbots.com/terms',warning:'Grant rates, difficulty and predictions are vendor calculations, not USPTO findings.'};\n if(source==='freepatentsonline')return {source,mode:'hosted-search-link',url:'https://www.freepatentsonline.com/Search/SearchBox.html?query_txt='+encodeURIComponent(query),searchFor:query,retrieved:false,authority:'third-party-reproduction-and-metadata',access:'Website search and free account features are available. The provider separately advertises commercial API and custom data services.',automaticPolling:false,reason:'No public free API entitlement or automated polling permission has been verified.',fields:'Website search supports patent text, dates, assignees, inventors, examiner names and classifications.',warning:'Search results and vendor metadata are leads. Verify patent text and legal status against the issuing authority or the original document.',docs:'https://www.freepatentsonline.com/search.html'};\n if(source==='wipo-patentscope')return {source,mode:'interactive-reference',url:'https://patentscope.wipo.int/search/en/search.jsf',searchFor:query,retrieved:false,authority:'official-wipo-search',access:'Free website search; a free WIPO account adds saved searches and larger exports.',automaticPolling:false,reason:'No general free automation API has been established for this connector.',coverage:'PCT publications and participating national and regional collections. Coverage differs by office and field.',docs:'https://www.wipo.int/en/web/patentscope/faqs_patentscope'};\n if(source==='google-patents'){\n  if(publication){const id=publication.toUpperCase().replace(/[\\s,-]/g,'');if(!/^[A-Z]{2}\\d{4,15}[A-Z]\\d?$/.test(id))throw new Error('Use a publication identifier with kind code, for example US11244675B2');return {source,mode:'publication-link',url:'https://patents.google.com/patent/'+id+'/en',publication:id,authority:'third-party-reproduction',retrieved:false,warning:'Read the original PDF; metadata, translations and legal-status annotations are distinct from the original patent.'};}\n  return {source,mode:'hosted-search-link',url:'https://patents.google.com/?q='+encodeURIComponent(query),retrieved:false,exportLimit:'Google documents CSV export of up to the top 1000 results; this is not a complete CPC population.',help:'https://support.google.com/faqs/answer/7049588?hl=en'};\n }\n if(source==='google-bigquery'){\n  const code=cpc.toUpperCase().replace(/\\s/g,'');if(!/^[A-HY]\\d{2}[A-Z](?:\\d{1,4}\\/\\d{2,6})?$/.test(code))throw new Error('Supply a CPC subclass or full symbol');\n  if(!Number.isInteger(from)||!Number.isInteger(to)||from<1970||to<from||to>new Date().getUTCFullYear()||to-from>30)throw new Error('Invalid year range');\n  const subclass=/^[A-HY]\\d{2}[A-Z]$/.test(code);\n  const sql='SELECT DIV(publication_date,10000) AS year, COUNT(DISTINCT publication_number) AS publications\\nFROM `patents-public-data.patents.publications`\\nWHERE country_code = @country AND publication_date BETWEEN @start_date AND @end_date\\nAND EXISTS (SELECT 1 FROM UNNEST(cpc) AS c WHERE '+(subclass?'STARTS_WITH(c.code,@cpc)':'c.code=@cpc')+')\\nGROUP BY year ORDER BY year';\n  const param=(name,type,value)=>({name,parameterType:{type},parameterValue:{value:String(value)}});\n  return {source,mode:'query-plan-only',connected:false,projectRequired:true,consoleUrl:'https://console.cloud.google.com/bigquery',table:'patents-public-data.patents.publications',parameters:{country:'US',cpc:code,from,to},tableFreshness:'The table and referenced fields were live-validated on 2026-09-06. The capped report tool returns the provider table-modification timestamp for each run.',request:{configuration:{dryRun:true,query:{query:sql,useLegacySql:false,parameterMode:'NAMED',queryParameters:[param('country','STRING','US'),param('cpc','STRING',code),param('start_date','INT64',from*10000+101),param('end_date','INT64',to*10000+1231)]}}},countingUnit:'distinct US publication numbers by publication year',cpcMatch:subclass?'subclass prefix':'exact symbol',execution:'This function returns a plan and does not execute it. Use research_bigquery_estimate for a dry run or research_bigquery_cpc_report for the separately capped no-billing-sandbox query and report.',coverage:'Not application filing counts or patent-family counts; grants and application publications can represent the same invention. Recent unpublished applications are absent.',docs:'https://docs.cloud.google.com/bigquery/public-data'};\n }\n throw new Error('Unknown external provider');\n};const j=$input.first().json,b=j.body||j;if(j.executionEnabled!==false)throw new Error('This workflow is permanently restricted to dry-run mode');if(!/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(j.projectId))throw new Error('Set your Google Cloud project ID in Connection Settings');const plan=externalAccess({source:'google-bigquery',cpc:b.cpc,from:b.from,to:b.to});if(plan.request.configuration.dryRun!==true)throw new Error('Dry-run guard failed');return [{json:{url:'https://bigquery.googleapis.com/bigquery/v2/projects/'+j.projectId+'/jobs',request:plan.request,countingUnit:plan.countingUnit}}];"
+        }
+      },
+      {
+        "id": "89f4ba3c-7d3e-4dbe-8052-2a0911e45934",
+        "name": "BigQuery — select dedicated OAuth credential",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          280,
+          0
+        ],
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $json.url }}",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "googleBigQueryOAuth2Api",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ $json.request }}",
+          "options": {
+            "timeout": 180000,
+            "redirect": {
+              "redirect": {
+                "followRedirects": false
+              }
+            },
+            "response": {
+              "response": {
+                "fullResponse": true,
+                "neverError": true,
+                "responseFormat": "json"
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "1de9c260-8363-4573-bcb0-85ab87bde9e5",
+        "name": "Return Dry Run Estimate",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          550,
+          0
+        ],
+        "parameters": {
+          "jsCode": "const r=$input.first().json,b=r.body??r.data??{};return [{json:{status:r.statusCode,dryRun:true,executedDataQuery:false,jobReference:b.jobReference,statistics:b.statistics,error:b.error,warning:'This checks permissions, SQL/schema and estimated bytes only. It cannot run a data query.'}}];"
+        }
+      }
+    ],
+    "connections": {
+      "When Called by Another Workflow": {
+        "main": [
+          [
+            {
+              "node": "Google Cloud Connection Settings",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Manual Dry Run": {
+        "main": [
+          [
+            {
+              "node": "Manual Test Parameters",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Manual Test Parameters": {
+        "main": [
+          [
+            {
+              "node": "Google Cloud Connection Settings",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Google Cloud Connection Settings": {
+        "main": [
+          [
+            {
+              "node": "Build Fixed CPC Dry Run",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Fixed CPC Dry Run": {
+        "main": [
+          [
+            {
+              "node": "BigQuery — select dedicated OAuth credential",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "BigQuery — select dedicated OAuth credential": {
+        "main": [
+          [
+            {
+              "node": "Return Dry Run Estimate",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  },
+  {
+    "id": "patent-research-google-bigquery-query-core",
+    "name": "Patent Research — Google BigQuery capped CPC trend (credential setup required)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "337c7c9f-6635-4ee1-83ef-824e97ad3394",
+        "name": "When Called by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          -820,
+          0
+        ],
+        "parameters": {
+          "inputSource": "passthrough"
+        }
+      },
+      {
+        "id": "3ed39ad6-22b4-4d63-9fc3-6b8e1a4fa681",
+        "name": "Capped Sandbox Policy",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [
+          -600,
+          0
+        ],
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "24e74648-c699-4742-bd8e-9574e6db15ec",
+                "name": "projectId",
+                "type": "string",
+                "value": "REPLACE_WITH_YOUR_PROJECT_ID"
+              },
+              {
+                "id": "08d05c06-b7c2-45bb-951e-86decb5797d1",
+                "name": "executionEnabled",
+                "type": "boolean",
+                "value": true
+              },
+              {
+                "id": "46bac240-5065-4fdc-a904-dd24e3620bb3",
+                "name": "billingMode",
+                "type": "string",
+                "value": "sandbox-no-billing"
+              },
+              {
+                "id": "7dce70c5-09bf-41dc-935d-768eea92a715",
+                "name": "maximumBytesBilled",
+                "type": "string",
+                "value": "26843545600"
+              }
+            ]
+          },
+          "includeOtherFields": true,
+          "options": {}
+        }
+      },
+      {
+        "id": "39271bae-e17c-4968-bbd0-c73109ee29ba",
+        "name": "Build Fixed CPC Trend Query",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -350,
+          0
+        ],
+        "parameters": {
+          "jsCode": "function externalAccess({source,query='',publication='',cpc='',from=2021,to=2025}={}){\n if(typeof query!=='string'||query.length>1000)throw new Error('Invalid public search query');\n if(source==='patentbots')return {source,mode:'interactive-reference',url:'https://www.patentbots.com/stats/',searchFor:query,authority:'secondary-derived-examiner-analytics',access:'Basic statistics require a free login; premium detail requires a subscription.',automaticPolling:false,reason:'Published terms prohibit systematic downloading and scraping. Use an authorized provider integration if one is agreed.',terms:'https://www.patentbots.com/terms',warning:'Grant rates, difficulty and predictions are vendor calculations, not USPTO findings.'};\n if(source==='freepatentsonline')return {source,mode:'hosted-search-link',url:'https://www.freepatentsonline.com/Search/SearchBox.html?query_txt='+encodeURIComponent(query),searchFor:query,retrieved:false,authority:'third-party-reproduction-and-metadata',access:'Website search and free account features are available. The provider separately advertises commercial API and custom data services.',automaticPolling:false,reason:'No public free API entitlement or automated polling permission has been verified.',fields:'Website search supports patent text, dates, assignees, inventors, examiner names and classifications.',warning:'Search results and vendor metadata are leads. Verify patent text and legal status against the issuing authority or the original document.',docs:'https://www.freepatentsonline.com/search.html'};\n if(source==='wipo-patentscope')return {source,mode:'interactive-reference',url:'https://patentscope.wipo.int/search/en/search.jsf',searchFor:query,retrieved:false,authority:'official-wipo-search',access:'Free website search; a free WIPO account adds saved searches and larger exports.',automaticPolling:false,reason:'No general free automation API has been established for this connector.',coverage:'PCT publications and participating national and regional collections. Coverage differs by office and field.',docs:'https://www.wipo.int/en/web/patentscope/faqs_patentscope'};\n if(source==='google-patents'){\n  if(publication){const id=publication.toUpperCase().replace(/[\\s,-]/g,'');if(!/^[A-Z]{2}\\d{4,15}[A-Z]\\d?$/.test(id))throw new Error('Use a publication identifier with kind code, for example US11244675B2');return {source,mode:'publication-link',url:'https://patents.google.com/patent/'+id+'/en',publication:id,authority:'third-party-reproduction',retrieved:false,warning:'Read the original PDF; metadata, translations and legal-status annotations are distinct from the original patent.'};}\n  return {source,mode:'hosted-search-link',url:'https://patents.google.com/?q='+encodeURIComponent(query),retrieved:false,exportLimit:'Google documents CSV export of up to the top 1000 results; this is not a complete CPC population.',help:'https://support.google.com/faqs/answer/7049588?hl=en'};\n }\n if(source==='google-bigquery'){\n  const code=cpc.toUpperCase().replace(/\\s/g,'');if(!/^[A-HY]\\d{2}[A-Z](?:\\d{1,4}\\/\\d{2,6})?$/.test(code))throw new Error('Supply a CPC subclass or full symbol');\n  if(!Number.isInteger(from)||!Number.isInteger(to)||from<1970||to<from||to>new Date().getUTCFullYear()||to-from>30)throw new Error('Invalid year range');\n  const subclass=/^[A-HY]\\d{2}[A-Z]$/.test(code);\n  const sql='SELECT DIV(publication_date,10000) AS year, COUNT(DISTINCT publication_number) AS publications\\nFROM `patents-public-data.patents.publications`\\nWHERE country_code = @country AND publication_date BETWEEN @start_date AND @end_date\\nAND EXISTS (SELECT 1 FROM UNNEST(cpc) AS c WHERE '+(subclass?'STARTS_WITH(c.code,@cpc)':'c.code=@cpc')+')\\nGROUP BY year ORDER BY year';\n  const param=(name,type,value)=>({name,parameterType:{type},parameterValue:{value:String(value)}});\n  return {source,mode:'query-plan-only',connected:false,projectRequired:true,consoleUrl:'https://console.cloud.google.com/bigquery',table:'patents-public-data.patents.publications',parameters:{country:'US',cpc:code,from,to},tableFreshness:'The table and referenced fields were live-validated on 2026-09-06. The capped report tool returns the provider table-modification timestamp for each run.',request:{configuration:{dryRun:true,query:{query:sql,useLegacySql:false,parameterMode:'NAMED',queryParameters:[param('country','STRING','US'),param('cpc','STRING',code),param('start_date','INT64',from*10000+101),param('end_date','INT64',to*10000+1231)]}}},countingUnit:'distinct US publication numbers by publication year',cpcMatch:subclass?'subclass prefix':'exact symbol',execution:'This function returns a plan and does not execute it. Use research_bigquery_estimate for a dry run or research_bigquery_cpc_report for the separately capped no-billing-sandbox query and report.',coverage:'Not application filing counts or patent-family counts; grants and application publications can represent the same invention. Recent unpublished applications are absent.',docs:'https://docs.cloud.google.com/bigquery/public-data'};\n }\n throw new Error('Unknown external provider');\n}\nfunction buildBigQueryExecutionRequest(plan,maximumBytesBilled){\n if(!plan?.request?.configuration?.query||plan.request.configuration.dryRun!==true)throw new Error('BigQuery execution requires the fixed dry-run plan');\n if(typeof maximumBytesBilled!=='string'||!/^[1-9]\\d*$/.test(maximumBytesBilled))throw new Error('Invalid BigQuery execution ceiling');\n const query=plan.request.configuration.query;\n return {...query,dryRun:false,useQueryCache:true,maxResults:31,timeoutMs:120000,jobTimeoutMs:'180000',maximumBytesBilled,labels:{application:'patent_research',operation:'cpc_publication_trend'}};\n};const j=$input.first().json,b=j.body||j;if(j.executionEnabled!==true||j.billingMode!=='sandbox-no-billing')throw new Error('Capped sandbox execution policy is disabled');if(!/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(j.projectId))throw new Error('Set the isolated Google Cloud project ID');const plan=externalAccess({source:'google-bigquery',cpc:b.cpc,from:b.from,to:b.to});const request=buildBigQueryExecutionRequest(plan,j.maximumBytesBilled);return [{json:{queryUrl:'https://bigquery.googleapis.com/bigquery/v2/projects/'+j.projectId+'/queries',metadataUrl:'https://bigquery.googleapis.com/bigquery/v2/projects/patents-public-data/datasets/patents/tables/publications',request,maximumBytesBilled:j.maximumBytesBilled}}];"
+        }
+      },
+      {
+        "id": "8ee53f00-f631-4828-ba2a-513ae308cea2",
+        "name": "Read Google Patents table metadata",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          -80,
+          0
+        ],
+        "parameters": {
+          "method": "GET",
+          "url": "={{ $json.metadataUrl }}",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "googleBigQueryOAuth2Api",
+          "options": {
+            "timeout": 180000,
+            "redirect": {
+              "redirect": {
+                "followRedirects": false
+              }
+            },
+            "response": {
+              "response": {
+                "fullResponse": true,
+                "neverError": true,
+                "responseFormat": "json"
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "b5d599fd-49c3-4a27-a3a2-50e6eed53c3a",
+        "name": "Validate Google Patents table metadata",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          190,
+          0
+        ],
+        "parameters": {
+          "jsCode": "const r=$input.first().json,b=r.body??r.data??{},built=$('Build Fixed CPC Trend Query').first().json,t=b.tableReference;if(r.statusCode!==200||t?.projectId!=='patents-public-data'||t?.datasetId!=='patents'||t?.tableId!=='publications'||!/^(0|[1-9]\\d*)$/.test(b.lastModifiedTime||'')||!/^(0|[1-9]\\d*)$/.test(b.numRows||'')||!/^(0|[1-9]\\d*)$/.test(b.numBytes||''))throw new Error('Google Patents table metadata could not be verified');return [{json:{...built,tableMetadata:{projectId:t.projectId,datasetId:t.datasetId,tableId:t.tableId,lastModifiedTime:b.lastModifiedTime,numRows:b.numRows,numBytes:b.numBytes}}}];"
+        }
+      },
+      {
+        "id": "ec3437f9-eb58-44ae-a052-e091cceddad5",
+        "name": "Execute capped CPC trend query",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          470,
+          0
+        ],
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $json.queryUrl }}",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "googleBigQueryOAuth2Api",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ $json.request }}",
+          "options": {
+            "timeout": 180000,
+            "redirect": {
+              "redirect": {
+                "followRedirects": false
+              }
+            },
+            "response": {
+              "response": {
+                "fullResponse": true,
+                "neverError": true,
+                "responseFormat": "json"
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "8443bcb0-e5cb-4635-80cb-a2b805c3f064",
+        "name": "Return Verified Query Envelope",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          750,
+          0
+        ],
+        "parameters": {
+          "jsCode": "const r=$input.first().json,b=r.body??r.data??{},built=$('Validate Google Patents table metadata').first().json;return [{json:{status:r.statusCode,dryRun:false,executedDataQuery:r.statusCode===200&&b.jobComplete===true&&!b.error&&!(b.errors?.length),jobComplete:b.jobComplete===true,jobReference:b.jobReference,schema:b.schema,rows:b.rows||[],totalRows:b.totalRows,totalBytesProcessed:b.totalBytesProcessed,totalBytesBilled:b.totalBytesBilled,cacheHit:b.cacheHit===true,error:b.error,errors:b.errors,maximumBytesBilled:built.maximumBytesBilled,tableMetadataStatus:200,tableMetadata:built.tableMetadata}}];"
+        }
+      }
+    ],
+    "connections": {
+      "When Called by Another Workflow": {
+        "main": [
+          [
+            {
+              "node": "Capped Sandbox Policy",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Capped Sandbox Policy": {
+        "main": [
+          [
+            {
+              "node": "Build Fixed CPC Trend Query",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Fixed CPC Trend Query": {
+        "main": [
+          [
+            {
+              "node": "Read Google Patents table metadata",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Read Google Patents table metadata": {
+        "main": [
+          [
+            {
+              "node": "Validate Google Patents table metadata",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Validate Google Patents table metadata": {
+        "main": [
+          [
+            {
+              "node": "Execute capped CPC trend query",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Execute capped CPC trend query": {
+        "main": [
+          [
+            {
+              "node": "Return Verified Query Envelope",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  },
+  {
+    "id": "patent-research-google-bigquery-query",
+    "name": "Patent Research — Google BigQuery capped CPC trend (MCP gateway)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "55956bb7-61ee-49c5-a4d0-8f9349305424",
+        "name": "Research Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          -650,
+          0
+        ],
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "patent-research-google-bigquery-query",
+          "authentication": "headerAuth",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "webhookId": "eeca0f3a-6bd1-42c0-abc4-68b0121e4cd7",
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "REPLACE_WITH_GATEWAY_CREDENTIAL_ID",
+            "name": "Research Gateway - Inbound Header Auth"
+          }
+        }
+      },
+      {
+        "id": "85fa91af-11d9-4e0f-8aa7-860adf65f976",
+        "name": "Call Shared Source Tool",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "workflowId": {
+            "__rl": true,
+            "value": "patent-research-google-bigquery-query-core",
+            "mode": "id"
+          },
+          "mode": "each",
+          "options": {
+            "waitForSubWorkflow": true
+          }
+        }
+      },
+      {
+        "id": "b684915d-c693-4aeb-b1d5-ffe3a30b62a2",
+        "name": "Return Result",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.4,
+        "position": [
+          650,
+          0
+        ],
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json }}",
+          "options": {}
+        }
+      }
+    ],
+    "connections": {
+      "Research Webhook": {
+        "main": [
+          [
+            {
+              "node": "Call Shared Source Tool",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Call Shared Source Tool": {
+        "main": [
+          [
+            {
+              "node": "Return Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  },
+  {
+    "id": "patent-research-google-bigquery",
+    "name": "Patent Research — Google BigQuery dry-run estimator (MCP gateway)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "1fea7607-2034-4d7f-90f8-12ac914e8742",
+        "name": "Research Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          -650,
+          0
+        ],
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "patent-research-google-bigquery",
+          "authentication": "headerAuth",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "webhookId": "2a8a2382-836d-4c8f-a689-0faeaca0d776",
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "REPLACE_WITH_GATEWAY_CREDENTIAL_ID",
+            "name": "Research Gateway - Inbound Header Auth"
+          }
+        }
+      },
+      {
+        "id": "ee93ea77-d09b-4619-aee6-22ad958bd713",
+        "name": "Call Shared Source Tool",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "workflowId": {
+            "__rl": true,
+            "value": "patent-research-google-bigquery-core",
+            "mode": "id"
+          },
+          "mode": "each",
+          "options": {
+            "waitForSubWorkflow": true
+          }
+        }
+      },
+      {
+        "id": "ece26d02-a8dd-40d8-8d8a-ab77d4ff4f14",
+        "name": "Return Result",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.4,
+        "position": [
+          650,
+          0
+        ],
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json }}",
+          "options": {}
+        }
+      }
+    ],
+    "connections": {
+      "Research Webhook": {
+        "main": [
+          [
+            {
+              "node": "Call Shared Source Tool",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Call Shared Source Tool": {
+        "main": [
+          [
+            {
+              "node": "Return Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  },
+  {
+    "id": "patent-research-govinfo-core",
+    "name": "Patent Research — GOVINFO — credential setup required (callable tool)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "2f734594-824a-45b7-a93c-97b81b598cc0",
+        "name": "When Called by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          -650,
+          0
+        ],
+        "parameters": {
+          "inputSource": "passthrough"
+        }
+      },
+      {
+        "id": "7242199e-b55c-477d-ab82-208224aaed1d",
+        "name": "Connection Settings",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [
+          -400,
+          0
+        ],
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "f42f09fd-8bf8-4766-b7ec-52225b68b619",
+                "name": "sourceUrls",
+                "value": "{\"govinfo\":\"https://api.govinfo.gov/search\"}",
+                "type": "string"
+              }
+            ]
+          },
+          "includeOtherFields": true,
+          "options": {}
+        }
+      },
+      {
+        "id": "8873cfb1-c503-46b5-a58d-08dd38cf36b9",
+        "name": "Validate Source Request",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -120,
+          0
+        ],
+        "parameters": {
+          "jsCode": "function validateWorkflowSource(j,route){\n  const b=j.source?j:j.body||{};\n  const urls=JSON.parse(j.sourceUrls),base=urls[b.source];\n  if(typeof base!=='string')throw new Error('Source not configured');\n  let url=b.url||base;\n  const allowed=/^https:\\/\\/(?:www\\.cafc\\.uscourts\\.gov|www\\.uspto\\.gov|api\\.uspto\\.gov|api\\.govinfo\\.gov|www\\.courtlistener\\.com|ops\\.epo\\.org)\\//;\n  if(typeof url!=='string'||!allowed.test(base)||!allowed.test(url)||/[\\s\\\\#\\u0000-\\u001f\\u007f]/.test(url))throw new Error('Unapproved source URL');\n  const requestPath=url.split('?')[0];\n  if(route==='epo'){\n    const suffix=requestPath.slice(base.length);\n    if(!requestPath.startsWith(base)||!/^\\/published-data\\/publication\\/epodoc\\/[A-Z]{2}[0-9]{1,14}[A-Z]?[0-9]?\\/biblio$/.test(suffix))throw new Error('Invalid EPO lookup');\n  }else if(requestPath!==base)throw new Error('Unapproved source path');\n  if(route==='courtlistener'&&!j.internalUseAgreementConfirmed)throw new Error('Confirm internal-tool use agreement in Connection Settings');\n  const method=route==='govinfo'||b.source==='odp'?'POST':'GET';\n  if((b.method||'GET')!==method)throw new Error('Method not allowed');\n  if(JSON.stringify(b).length>16000)throw new Error('Request too large');\n  if(b.source==='odp'){\n    const {q,pagination}=b.body||{};\n    if(typeof q!=='string'||!q.trim()||q.length>2000||!Number.isSafeInteger(pagination?.offset)||pagination.offset<0||!Number.isSafeInteger(pagination?.limit)||pagination.limit<1||pagination.limit>100)throw new Error('Invalid USPTO query or pagination');\n  }\n  if(route==='govinfo'){\n    const body=b.body;\n    if(!body||Array.isArray(body)||typeof body!=='object')throw new Error('Invalid GovInfo request body');\n    const keys=Object.keys(body).sort().join(',');\n    if(keys!=='offsetMark,pageSize,query,sorts')throw new Error('Unexpected GovInfo request fields');\n    if(typeof body.query!=='string'||!body.query.startsWith('collection:USCOURTS ')||!body.query.slice(20).trim()||body.query.length>2020)throw new Error('GovInfo query must target USCOURTS');\n    if(typeof body.pageSize!=='string'||!/^\\d{1,3}$/.test(body.pageSize)||Number(body.pageSize)<1||Number(body.pageSize)>100)throw new Error('Invalid GovInfo page size');\n    if(typeof body.offsetMark!=='string'||!body.offsetMark||body.offsetMark.length>2000||/[\\u0000-\\u001f\\u007f]/.test(body.offsetMark))throw new Error('Invalid GovInfo offset mark');\n    if(!Array.isArray(body.sorts)||body.sorts.length!==1||Object.keys(body.sorts[0]||{}).sort().join(',')!=='field,sortOrder'||body.sorts[0].field!=='score'||body.sorts[0].sortOrder!=='DESC')throw new Error('Invalid GovInfo sort');\n  }\n  if(route==='courtlistener'){\n    const query=url.slice(base.length+1);\n    if(!url.startsWith(base+'?')||!query)throw new Error('Invalid CourtListener query');\n    const values={};\n    for(const part of query.split('&')){\n      const pair=part.split('=');\n      if(pair.length!==2)throw new Error('Invalid CourtListener query');\n      let key,value;try{key=decodeURIComponent(pair[0].replace(/\\+/g,' '));value=decodeURIComponent(pair[1].replace(/\\+/g,' '));}catch{throw new Error('Invalid CourtListener query encoding');}\n      if(!['q','type','cursor'].includes(key)||Object.prototype.hasOwnProperty.call(values,key))throw new Error('Unexpected CourtListener query field');\n      values[key]=value;\n    }\n    if(typeof values.q!=='string'||!values.q.trim()||values.q.length>2000||values.type!=='o'||(values.cursor!==undefined&&(!values.cursor||values.cursor.length>2000)))throw new Error('Invalid CourtListener search parameters');\n    url=base+'?q='+encodeURIComponent(values.q)+'&type=o'+(values.cursor===undefined?'':'&cursor='+encodeURIComponent(values.cursor));\n  }\n  return {url,method,body:b.body||{}};\n};return [{json:validateWorkflowSource($input.first().json,'govinfo')}];"
+        }
+      },
+      {
+        "id": "c160150c-05a4-4181-80aa-41e23b8bc104",
+        "name": "Provider — select credential here",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          350,
+          0
+        ],
+        "parameters": {
+          "method": "={{ $json.method }}",
+          "url": "={{ $json.url }}",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ $json.body }}",
+          "options": {
+            "timeout": 25000,
+            "redirect": {
+              "redirect": {
+                "followRedirects": false
+              }
+            },
+            "response": {
+              "response": {
+                "fullResponse": true,
+                "neverError": true,
+                "responseFormat": "text"
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "68d74c73-0d85-416a-b959-28e0861a80a6",
+        "name": "Package Source Response",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          500,
+          0
+        ],
+        "parameters": {
+          "jsCode": "const r=$input.first().json;const body=r.body??r.data;if(body===undefined)throw new Error('Source response envelope changed');const text=typeof body==='string'?body:JSON.stringify(body);if(text.length>6000000)throw new Error('Source response too large');return [{json:{text,status:r.statusCode,contentType:r.headers?.['content-type']||''}}];"
+        }
+      }
+    ],
+    "connections": {
+      "When Called by Another Workflow": {
+        "main": [
+          [
+            {
+              "node": "Connection Settings",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Connection Settings": {
+        "main": [
+          [
+            {
+              "node": "Validate Source Request",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Validate Source Request": {
+        "main": [
+          [
+            {
+              "node": "Provider — select credential here",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Provider — select credential here": {
+        "main": [
+          [
+            {
+              "node": "Package Source Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  },
+  {
+    "id": "patent-research-govinfo",
+    "name": "Patent Research — GOVINFO — credential setup required (MCP gateway)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "bb1eae95-0df7-4c3d-a76d-c0b2b1be9fec",
+        "name": "Research Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          -650,
+          0
+        ],
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "patent-research-govinfo",
+          "authentication": "headerAuth",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "webhookId": "b0fdd490-ac91-4c47-89dc-2278a907f3a4",
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "REPLACE_WITH_GATEWAY_CREDENTIAL_ID",
+            "name": "Research Gateway - Inbound Header Auth"
+          }
+        }
+      },
+      {
+        "id": "8fd68937-c213-4890-b28e-63966c95ba41",
+        "name": "Call Shared Source Tool",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "workflowId": {
+            "__rl": true,
+            "value": "patent-research-govinfo-core",
+            "mode": "id"
+          },
+          "mode": "each",
+          "options": {
+            "waitForSubWorkflow": true
+          }
+        }
+      },
+      {
+        "id": "d154062e-badb-41fd-9c30-bc517cbbead8",
+        "name": "Return Result",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.4,
+        "position": [
+          650,
+          0
+        ],
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json }}",
+          "options": {}
+        }
+      }
+    ],
+    "connections": {
+      "Research Webhook": {
+        "main": [
+          [
+            {
+              "node": "Call Shared Source Tool",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Call Shared Source Tool": {
+        "main": [
+          [
+            {
+              "node": "Return Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  },
+  {
+    "id": "patent-research-model",
+    "name": "Patent Research — Models",
+    "active": false,
+    "nodes": [
+      {
+        "id": "2460da5e-5153-4275-ad0c-6a521aa60a2d",
+        "name": "Research Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          -650,
+          0
+        ],
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "patent-research-model",
+          "authentication": "headerAuth",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "webhookId": "2072c341-a67e-48ec-857a-9744e08d1277",
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "REPLACE_WITH_GATEWAY_CREDENTIAL_ID",
+            "name": "Research Gateway - Inbound Header Auth"
+          }
+        }
+      },
+      {
+        "id": "de64eb49-4cea-491f-9582-aec8552880b9",
+        "name": "Connection Settings",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [
+          -400,
+          0
+        ],
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "f008d7ea-dfcc-49a3-bb1e-37845dbe8cf9",
+                "name": "defaultModel",
+                "value": "gpt-5.4-mini",
+                "type": "string"
+              },
+              {
+                "id": "47d33eb1-cf46-4845-b86c-eefca5e02e19",
+                "name": "allowedModels",
+                "value": "gpt-5.4-mini,gpt-5.4,gpt-5.6-terra",
+                "type": "string"
+              }
+            ]
+          },
+          "includeOtherFields": true,
+          "options": {}
+        }
+      },
+      {
+        "id": "77607c86-eba2-4831-ba85-700d112f97ce",
+        "name": "Validate Chat",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -120,
+          0
+        ],
+        "parameters": {
+          "jsCode": "const j=$input.first().json,b=j.body; if(!b||!Array.isArray(b.messages)||JSON.stringify(b).length>1800000)throw new Error('Invalid or oversized chat request'); const allowed=j.allowedModels.split(',').map(s=>s.trim()); const model=b.model||j.defaultModel;if(!allowed.includes(model))throw new Error('Model not enabled in Connection Settings');const keys=['messages','tools','tool_choice','parallel_tool_calls','temperature','top_p','max_completion_tokens','reasoning_effort','response_format','stop','seed'];const request={model,stream:false,store:false};for(const k of keys)if(b[k]!==undefined)request[k]=b[k];if(b.max_tokens!==undefined&&!request.max_completion_tokens)request.max_completion_tokens=b.max_tokens;return [{json:{request}}];"
+        }
+      },
+      {
+        "id": "ddaec826-f4a6-4156-817e-d69daf710de9",
+        "name": "Model Provider — existing OpenAI credential",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          350,
+          0
+        ],
+        "parameters": {
+          "method": "POST",
+          "url": "https://api.openai.com/v1/chat/completions",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "openAiApi",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ $json.request }}",
+          "options": {
+            "timeout": 240000,
+            "redirect": {
+              "redirect": {
+                "followRedirects": false
+              }
+            }
+          }
+        },
+        "credentials": {
+          "openAiApi": {
+            "id": "REPLACE_WITH_OPENAI_CREDENTIAL_ID",
+            "name": "OpenAI account"
+          }
+        }
+      },
+      {
+        "id": "dd319ff2-92ae-429d-bef3-5e390e624318",
+        "name": "Return Result",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.4,
+        "position": [
+          650,
+          0
+        ],
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json }}",
+          "options": {}
+        }
+      }
+    ],
+    "connections": {
+      "Research Webhook": {
+        "main": [
+          [
+            {
+              "node": "Connection Settings",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Connection Settings": {
+        "main": [
+          [
+            {
+              "node": "Validate Chat",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Validate Chat": {
+        "main": [
+          [
+            {
+              "node": "Model Provider — existing OpenAI credential",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Model Provider — existing OpenAI credential": {
+        "main": [
+          [
+            {
+              "node": "Return Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  },
+  {
+    "id": "patent-research-ptab-core",
+    "name": "Patent Research — PTAB — credential setup required (callable tool)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "5e368fd9-e7e2-40a9-9e7f-cd5f38e83a5e",
+        "name": "When Called by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          -650,
+          0
+        ],
+        "parameters": {
+          "inputSource": "passthrough"
+        }
+      },
+      {
+        "id": "317c1ce1-d9ba-461a-ae13-cd1b3ad7987e",
+        "name": "Connection Settings",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [
+          -400,
+          0
+        ],
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "fd613b23-6284-4aec-87fe-91a0c414e7ac",
+                "name": "sourceUrls",
+                "value": "{\"ptab-trials\":\"https://api.uspto.gov/api/v1/patent/trials/decisions/search\",\"ptab-appeals\":\"https://api.uspto.gov/api/v1/patent/appeals/decisions/search\"}",
+                "type": "string"
+              }
+            ]
+          },
+          "includeOtherFields": true,
+          "options": {}
+        }
+      },
+      {
+        "id": "d3b130bb-e832-43a2-b8dc-5b981bbd6eae",
+        "name": "Validate Source Request",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -120,
+          0
+        ],
+        "parameters": {
+          "jsCode": "function validateWorkflowSource(j,route){\n  const b=j.source?j:j.body||{};\n  const urls=JSON.parse(j.sourceUrls),base=urls[b.source];\n  if(typeof base!=='string')throw new Error('Source not configured');\n  let url=b.url||base;\n  const allowed=/^https:\\/\\/(?:www\\.cafc\\.uscourts\\.gov|www\\.uspto\\.gov|api\\.uspto\\.gov|api\\.govinfo\\.gov|www\\.courtlistener\\.com|ops\\.epo\\.org)\\//;\n  if(typeof url!=='string'||!allowed.test(base)||!allowed.test(url)||/[\\s\\\\#\\u0000-\\u001f\\u007f]/.test(url))throw new Error('Unapproved source URL');\n  const requestPath=url.split('?')[0];\n  if(route==='epo'){\n    const suffix=requestPath.slice(base.length);\n    if(!requestPath.startsWith(base)||!/^\\/published-data\\/publication\\/epodoc\\/[A-Z]{2}[0-9]{1,14}[A-Z]?[0-9]?\\/biblio$/.test(suffix))throw new Error('Invalid EPO lookup');\n  }else if(requestPath!==base)throw new Error('Unapproved source path');\n  if(route==='courtlistener'&&!j.internalUseAgreementConfirmed)throw new Error('Confirm internal-tool use agreement in Connection Settings');\n  const method=route==='govinfo'||b.source==='odp'?'POST':'GET';\n  if((b.method||'GET')!==method)throw new Error('Method not allowed');\n  if(JSON.stringify(b).length>16000)throw new Error('Request too large');\n  if(b.source==='odp'){\n    const {q,pagination}=b.body||{};\n    if(typeof q!=='string'||!q.trim()||q.length>2000||!Number.isSafeInteger(pagination?.offset)||pagination.offset<0||!Number.isSafeInteger(pagination?.limit)||pagination.limit<1||pagination.limit>100)throw new Error('Invalid USPTO query or pagination');\n  }\n  if(route==='govinfo'){\n    const body=b.body;\n    if(!body||Array.isArray(body)||typeof body!=='object')throw new Error('Invalid GovInfo request body');\n    const keys=Object.keys(body).sort().join(',');\n    if(keys!=='offsetMark,pageSize,query,sorts')throw new Error('Unexpected GovInfo request fields');\n    if(typeof body.query!=='string'||!body.query.startsWith('collection:USCOURTS ')||!body.query.slice(20).trim()||body.query.length>2020)throw new Error('GovInfo query must target USCOURTS');\n    if(typeof body.pageSize!=='string'||!/^\\d{1,3}$/.test(body.pageSize)||Number(body.pageSize)<1||Number(body.pageSize)>100)throw new Error('Invalid GovInfo page size');\n    if(typeof body.offsetMark!=='string'||!body.offsetMark||body.offsetMark.length>2000||/[\\u0000-\\u001f\\u007f]/.test(body.offsetMark))throw new Error('Invalid GovInfo offset mark');\n    if(!Array.isArray(body.sorts)||body.sorts.length!==1||Object.keys(body.sorts[0]||{}).sort().join(',')!=='field,sortOrder'||body.sorts[0].field!=='score'||body.sorts[0].sortOrder!=='DESC')throw new Error('Invalid GovInfo sort');\n  }\n  if(route==='courtlistener'){\n    const query=url.slice(base.length+1);\n    if(!url.startsWith(base+'?')||!query)throw new Error('Invalid CourtListener query');\n    const values={};\n    for(const part of query.split('&')){\n      const pair=part.split('=');\n      if(pair.length!==2)throw new Error('Invalid CourtListener query');\n      let key,value;try{key=decodeURIComponent(pair[0].replace(/\\+/g,' '));value=decodeURIComponent(pair[1].replace(/\\+/g,' '));}catch{throw new Error('Invalid CourtListener query encoding');}\n      if(!['q','type','cursor'].includes(key)||Object.prototype.hasOwnProperty.call(values,key))throw new Error('Unexpected CourtListener query field');\n      values[key]=value;\n    }\n    if(typeof values.q!=='string'||!values.q.trim()||values.q.length>2000||values.type!=='o'||(values.cursor!==undefined&&(!values.cursor||values.cursor.length>2000)))throw new Error('Invalid CourtListener search parameters');\n    url=base+'?q='+encodeURIComponent(values.q)+'&type=o'+(values.cursor===undefined?'':'&cursor='+encodeURIComponent(values.cursor));\n  }\n  return {url,method,body:b.body||{}};\n};return [{json:validateWorkflowSource($input.first().json,'ptab')}];"
+        }
+      },
+      {
+        "id": "10ac8697-65c2-488b-ab57-8f0857b00fbf",
+        "name": "Provider — select credential here",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          350,
+          0
+        ],
+        "parameters": {
+          "method": "GET",
+          "url": "={{ $json.url }}",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth",
+          "options": {
+            "timeout": 25000,
+            "redirect": {
+              "redirect": {
+                "followRedirects": false
+              }
+            }
+          },
+          "sendBody": false,
+          "contentType": "raw",
+          "rawContentType": "application/json",
+          "body": "={{ JSON.stringify($json.body) }}"
+        },
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "REPLACE_WITH_USPTO_CREDENTIAL_ID",
+            "name": "USPTO ODP API Key"
+          }
+        }
+      },
+      {
+        "id": "7dbefdbc-0fd1-42b6-ac55-21bc60247030",
+        "name": "Package Source Response",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          500,
+          0
+        ],
+        "parameters": {
+          "jsCode": "return [{json:{text:JSON.stringify($input.first().json),status:200,contentType:'application/json'}}];"
+        }
+      }
+    ],
+    "connections": {
+      "When Called by Another Workflow": {
+        "main": [
+          [
+            {
+              "node": "Connection Settings",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Connection Settings": {
+        "main": [
+          [
+            {
+              "node": "Validate Source Request",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Validate Source Request": {
+        "main": [
+          [
+            {
+              "node": "Provider — select credential here",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Provider — select credential here": {
+        "main": [
+          [
+            {
+              "node": "Package Source Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  },
+  {
+    "id": "patent-research-ptab-files-core",
+    "name": "Patent Research — PTAB original PDFs (callable tool)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "e83db789-5119-45bd-b338-6d12be178ec5",
+        "name": "When Called by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          -650,
+          0
+        ],
+        "parameters": {
+          "inputSource": "passthrough"
+        }
+      },
+      {
+        "id": "a3153c02-5507-49f1-8188-e041df43677c",
+        "name": "Validate PTAB Document Identity",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -350,
+          0
+        ],
+        "parameters": {
+          "jsCode": "function validatePtabOriginal(input){\n  const {trialNumber,appealNumber,documentIdentifier}=input||{};\n  const appeal=/^(20\\d{2})(\\d{6})$/.exec(appealNumber||'');\n  if(appeal){\n    if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(documentIdentifier||''))throw new Error('Invalid PTAB appeal document identifier');\n    const url='https://api.uspto.gov/api/v1/patent/ptab-files/APP/'+appeal[1]+'/'+appeal[2]+'/'+documentIdentifier+'.pdf';\n    return {appealNumber,documentIdentifier,url};\n  }\n  const trial=/^(IPR|PGR|CBM|DER)(20\\d{2})-(\\d{5})$/.exec(trialNumber||'');\n  if(!trial||!/^\\d{1,20}$/.test(documentIdentifier||''))throw new Error('Invalid PTAB trial or document identifier');\n  const url='https://api.uspto.gov/api/v1/patent/ptab-files/'+trial[1]+'/'+trial[2]+'/'+trial[3]+'/'+documentIdentifier+'.pdf';\n  return {trialNumber,documentIdentifier,url};\n};let b=$input.first().json;for(let i=0;i<5&&!b?.trialNumber&&!b?.appealNumber;i++){if(typeof b==='string'&&b.length<16000){try{b=JSON.parse(b);continue}catch{}}b=b?.body}if(!b?.trialNumber&&!b?.appealNumber)throw new Error('PTAB identity envelope not recognized; keys: '+Object.keys(b||{}).slice(0,8).join(','));return [{json:validatePtabOriginal(b)}];"
+        }
+      },
+      {
+        "id": "0066f0f9-a6ad-4fcf-b30f-07574da29502",
+        "name": "Authorize PTAB download — shared USPTO credential",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "method": "GET",
+          "url": "={{ $json.url }}",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth",
+          "options": {
+            "timeout": 60000,
+            "redirect": {
+              "redirect": {
+                "followRedirects": false
+              }
+            },
+            "response": {
+              "response": {
+                "responseFormat": "text",
+                "fullResponse": true,
+                "neverError": true
+              }
+            }
+          }
+        },
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "REPLACE_WITH_USPTO_CREDENTIAL_ID",
+            "name": "USPTO ODP API Key"
+          }
+        }
+      },
+      {
+        "id": "6138ec8a-2aee-4bed-9ceb-44fb1e6e5084",
+        "name": "Validate USPTO signed download",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          350,
+          0
+        ],
+        "parameters": {
+          "jsCode": "function validatePtabDownload(response,identity){\n  if(![302,303,307,308].includes(response?.statusCode))throw new Error('USPTO did not authorize a PTAB download (HTTP '+Number(response?.statusCode||0)+')');\n  const location=response.headers?.location||response.headers?.Location;\n  const expected=identity.url.replace('https://api.uspto.gov/api/v1/patent/','https://data.uspto.gov/');\n  if(typeof location!=='string'||location.length>4096||!location.startsWith(expected+'?'))throw new Error('Unexpected USPTO download destination');\n  const query=location.slice(expected.length+1),seen=new Set();\n  for(const part of query.split('&')){\n    const match=/^(Expires|Signature|Key-Pair-Id)=([A-Za-z0-9_~.%-]+)$/.exec(part);\n    if(!match||seen.has(match[1]))throw new Error('Invalid USPTO signed download parameters');\n    if(match[1]==='Expires'&&!/^\\d+$/.test(match[2]))throw new Error('Invalid USPTO download expiry');\n    seen.add(match[1]);\n  }\n  if(seen.size!==3)throw new Error('Incomplete USPTO signed download parameters');\n  return {downloadUrl:location};\n};return [{json:validatePtabDownload($input.first().json,$('Validate PTAB Document Identity').first().json)}];"
+        }
+      },
+      {
+        "id": "5e57a26b-ec42-4ca1-a55c-1024865519c4",
+        "name": "Download from USPTO — no API credential",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          650,
+          0
+        ],
+        "parameters": {
+          "method": "GET",
+          "url": "={{ $json.downloadUrl }}",
+          "authentication": "none",
+          "options": {
+            "timeout": 60000,
+            "redirect": {
+              "redirect": {
+                "followRedirects": false
+              }
+            },
+            "response": {
+              "response": {
+                "responseFormat": "file",
+                "outputPropertyName": "data",
+                "fullResponse": true,
+                "neverError": true
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "8706a6cb-96c4-460e-a46a-7431ee5d2e97",
+        "name": "Package Verified Original",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          950,
+          0
+        ],
+        "parameters": {
+          "jsCode": "if($input.first().json.statusCode!==200)throw new Error('USPTO PDF download failed');const b=await this.helpers.getBinaryDataBuffer(0,'data');if(b.length>10485760||b.subarray(0,5).toString('ascii')!=='%PDF-')throw new Error('Original is oversized or is not a PDF');const identity=$('Validate PTAB Document Identity').first().json;return [{json:{status:200,url:identity.url,contentType:'application/pdf',bytes:b.length,base64:b.toString('base64')}}];"
+        }
+      }
+    ],
+    "connections": {
+      "When Called by Another Workflow": {
+        "main": [
+          [
+            {
+              "node": "Validate PTAB Document Identity",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Validate PTAB Document Identity": {
+        "main": [
+          [
+            {
+              "node": "Authorize PTAB download — shared USPTO credential",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Authorize PTAB download — shared USPTO credential": {
+        "main": [
+          [
+            {
+              "node": "Validate USPTO signed download",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Validate USPTO signed download": {
+        "main": [
+          [
+            {
+              "node": "Download from USPTO — no API credential",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Download from USPTO — no API credential": {
+        "main": [
+          [
+            {
+              "node": "Package Verified Original",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  },
+  {
+    "id": "patent-research-ptab-files",
+    "name": "Patent Research — PTAB original PDFs (MCP gateway)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "a6f319d7-778a-4ae8-ac24-e0e24fe3805d",
+        "name": "Research Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          -650,
+          0
+        ],
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "patent-research-ptab-files",
+          "authentication": "headerAuth",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "webhookId": "9621c1f8-1508-4cf7-b3b6-b21e64ef8424",
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "REPLACE_WITH_GATEWAY_CREDENTIAL_ID",
+            "name": "Research Gateway - Inbound Header Auth"
+          }
+        }
+      },
+      {
+        "id": "982a26a0-9deb-42c4-a1ea-90534a468879",
+        "name": "Call Shared Source Tool",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "workflowId": {
+            "__rl": true,
+            "value": "patent-research-ptab-files-core",
+            "mode": "id"
+          },
+          "mode": "each",
+          "options": {
+            "waitForSubWorkflow": true
+          }
+        }
+      },
+      {
+        "id": "d181e35d-7f86-4432-920d-26bb7e00a55c",
+        "name": "Return Result",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.4,
+        "position": [
+          650,
+          0
+        ],
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json }}",
+          "options": {}
+        }
+      }
+    ],
+    "connections": {
+      "Research Webhook": {
+        "main": [
+          [
+            {
+              "node": "Call Shared Source Tool",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Call Shared Source Tool": {
+        "main": [
+          [
+            {
+              "node": "Return Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  },
+  {
+    "id": "patent-research-ptab",
+    "name": "Patent Research — PTAB — credential setup required (MCP gateway)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "38c7698e-efa9-4e08-b5a5-63759443f369",
+        "name": "Research Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          -650,
+          0
+        ],
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "patent-research-ptab",
+          "authentication": "headerAuth",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "webhookId": "d7889a07-ca0f-44e0-8a63-c655349cc2c1",
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "REPLACE_WITH_GATEWAY_CREDENTIAL_ID",
+            "name": "Research Gateway - Inbound Header Auth"
+          }
+        }
+      },
+      {
+        "id": "85c35e8a-7659-4012-a6cb-8f05597bb36f",
+        "name": "Call Shared Source Tool",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "workflowId": {
+            "__rl": true,
+            "value": "patent-research-ptab-core",
+            "mode": "id"
+          },
+          "mode": "each",
+          "options": {
+            "waitForSubWorkflow": true
+          }
+        }
+      },
+      {
+        "id": "2917c563-0591-4d46-878a-f437b56da7cb",
+        "name": "Return Result",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.4,
+        "position": [
+          650,
+          0
+        ],
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json }}",
+          "options": {}
+        }
+      }
+    ],
+    "connections": {
+      "Research Webhook": {
+        "main": [
+          [
+            {
+              "node": "Call Shared Source Tool",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Call Shared Source Tool": {
+        "main": [
+          [
+            {
+              "node": "Return Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  },
+  {
+    "id": "patent-research-public-core",
+    "name": "Patent Research — Official Public Sources (callable tool)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "24e5e8f5-9d54-4205-bea0-3598da196f4e",
+        "name": "When Called by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          -650,
+          0
+        ],
+        "parameters": {
+          "inputSource": "passthrough"
+        }
+      },
+      {
+        "id": "b433f8ae-14b3-4675-90e6-f7c13398358b",
+        "name": "Connection Settings",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [
+          -400,
+          0
+        ],
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "d30f9ae4-2013-4764-b30c-60b59f1f5a6b",
+                "name": "sourceUrls",
+                "value": "{\"cafc\":\"https://www.cafc.uscourts.gov/category/opinion-order/feed/\",\"ptab-precedent\":\"https://www.uspto.gov/patents/ptab/precedential-informative-decisions\",\"ptab-statistics\":\"https://www.uspto.gov/patents/ptab/statistics\",\"gazette\":\"https://www.uspto.gov/learning-and-resources/official-gazette/official-gazette-patents\",\"gazette-notices\":\"https://www.uspto.gov/learning-and-resources/official-gazette\",\"uspto-decisions\":\"https://www.uspto.gov/about-us/electronic-freedom-information-act-e-foia\",\"ptab-director\":\"https://www.uspto.gov/patents/ptab/decisions/director-review-process\",\"patentsview\":\"https://www.uspto.gov/ip-policy/economic-research/patentsview\",\"uspto-guidance\":\"https://www.uspto.gov/patents/laws/patent-legal-administration\"}",
+                "type": "string"
+              }
+            ]
+          },
+          "includeOtherFields": true,
+          "options": {}
+        }
+      },
+      {
+        "id": "b3964a52-1902-4a42-a7f0-c69480484764",
+        "name": "Validate Source Request",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -120,
+          0
+        ],
+        "parameters": {
+          "jsCode": "function validateWorkflowSource(j,route){\n  const b=j.source?j:j.body||{};\n  const urls=JSON.parse(j.sourceUrls),base=urls[b.source];\n  if(typeof base!=='string')throw new Error('Source not configured');\n  let url=b.url||base;\n  const allowed=/^https:\\/\\/(?:www\\.cafc\\.uscourts\\.gov|www\\.uspto\\.gov|api\\.uspto\\.gov|api\\.govinfo\\.gov|www\\.courtlistener\\.com|ops\\.epo\\.org)\\//;\n  if(typeof url!=='string'||!allowed.test(base)||!allowed.test(url)||/[\\s\\\\#\\u0000-\\u001f\\u007f]/.test(url))throw new Error('Unapproved source URL');\n  const requestPath=url.split('?')[0];\n  if(route==='epo'){\n    const suffix=requestPath.slice(base.length);\n    if(!requestPath.startsWith(base)||!/^\\/published-data\\/publication\\/epodoc\\/[A-Z]{2}[0-9]{1,14}[A-Z]?[0-9]?\\/biblio$/.test(suffix))throw new Error('Invalid EPO lookup');\n  }else if(requestPath!==base)throw new Error('Unapproved source path');\n  if(route==='courtlistener'&&!j.internalUseAgreementConfirmed)throw new Error('Confirm internal-tool use agreement in Connection Settings');\n  const method=route==='govinfo'||b.source==='odp'?'POST':'GET';\n  if((b.method||'GET')!==method)throw new Error('Method not allowed');\n  if(JSON.stringify(b).length>16000)throw new Error('Request too large');\n  if(b.source==='odp'){\n    const {q,pagination}=b.body||{};\n    if(typeof q!=='string'||!q.trim()||q.length>2000||!Number.isSafeInteger(pagination?.offset)||pagination.offset<0||!Number.isSafeInteger(pagination?.limit)||pagination.limit<1||pagination.limit>100)throw new Error('Invalid USPTO query or pagination');\n  }\n  if(route==='govinfo'){\n    const body=b.body;\n    if(!body||Array.isArray(body)||typeof body!=='object')throw new Error('Invalid GovInfo request body');\n    const keys=Object.keys(body).sort().join(',');\n    if(keys!=='offsetMark,pageSize,query,sorts')throw new Error('Unexpected GovInfo request fields');\n    if(typeof body.query!=='string'||!body.query.startsWith('collection:USCOURTS ')||!body.query.slice(20).trim()||body.query.length>2020)throw new Error('GovInfo query must target USCOURTS');\n    if(typeof body.pageSize!=='string'||!/^\\d{1,3}$/.test(body.pageSize)||Number(body.pageSize)<1||Number(body.pageSize)>100)throw new Error('Invalid GovInfo page size');\n    if(typeof body.offsetMark!=='string'||!body.offsetMark||body.offsetMark.length>2000||/[\\u0000-\\u001f\\u007f]/.test(body.offsetMark))throw new Error('Invalid GovInfo offset mark');\n    if(!Array.isArray(body.sorts)||body.sorts.length!==1||Object.keys(body.sorts[0]||{}).sort().join(',')!=='field,sortOrder'||body.sorts[0].field!=='score'||body.sorts[0].sortOrder!=='DESC')throw new Error('Invalid GovInfo sort');\n  }\n  if(route==='courtlistener'){\n    const query=url.slice(base.length+1);\n    if(!url.startsWith(base+'?')||!query)throw new Error('Invalid CourtListener query');\n    const values={};\n    for(const part of query.split('&')){\n      const pair=part.split('=');\n      if(pair.length!==2)throw new Error('Invalid CourtListener query');\n      let key,value;try{key=decodeURIComponent(pair[0].replace(/\\+/g,' '));value=decodeURIComponent(pair[1].replace(/\\+/g,' '));}catch{throw new Error('Invalid CourtListener query encoding');}\n      if(!['q','type','cursor'].includes(key)||Object.prototype.hasOwnProperty.call(values,key))throw new Error('Unexpected CourtListener query field');\n      values[key]=value;\n    }\n    if(typeof values.q!=='string'||!values.q.trim()||values.q.length>2000||values.type!=='o'||(values.cursor!==undefined&&(!values.cursor||values.cursor.length>2000)))throw new Error('Invalid CourtListener search parameters');\n    url=base+'?q='+encodeURIComponent(values.q)+'&type=o'+(values.cursor===undefined?'':'&cursor='+encodeURIComponent(values.cursor));\n  }\n  return {url,method,body:b.body||{}};\n};return [{json:validateWorkflowSource($input.first().json,'public')}];"
+        }
+      },
+      {
+        "id": "8d2a79cf-0c23-4590-bcbe-a3431ea1ab66",
+        "name": "Fetch Official Source",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          350,
+          0
+        ],
+        "parameters": {
+          "method": "={{ $json.method }}",
+          "url": "={{ $json.url }}",
+          "options": {
+            "timeout": 25000,
+            "redirect": {
+              "redirect": {
+                "followRedirects": false
+              }
+            },
+            "response": {
+              "response": {
+                "fullResponse": true,
+                "neverError": true,
+                "responseFormat": "text"
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "0b26f70a-62c7-4f28-bef7-263ff87f5404",
+        "name": "Package Source Response",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          500,
+          0
+        ],
+        "parameters": {
+          "jsCode": "const r=$input.first().json;const body=r.body??r.data;if(body===undefined)throw new Error('Source response envelope changed');const text=typeof body==='string'?body:JSON.stringify(body);if(text.length>6000000)throw new Error('Source response too large');return [{json:{text,status:r.statusCode,contentType:r.headers?.['content-type']||''}}];"
+        }
+      }
+    ],
+    "connections": {
+      "When Called by Another Workflow": {
+        "main": [
+          [
+            {
+              "node": "Connection Settings",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Connection Settings": {
+        "main": [
+          [
+            {
+              "node": "Validate Source Request",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Validate Source Request": {
+        "main": [
+          [
+            {
+              "node": "Fetch Official Source",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Fetch Official Source": {
+        "main": [
+          [
+            {
+              "node": "Package Source Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  },
+  {
+    "id": "patent-research-public",
+    "name": "Patent Research — Official Public Sources (MCP gateway)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "0468a54c-3bd4-4222-a24e-93bfd143c523",
+        "name": "Research Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          -650,
+          0
+        ],
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "patent-research-public",
+          "authentication": "headerAuth",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "webhookId": "4bdcb417-e65e-4f1d-ad5a-b0fdbae3aeb0",
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "REPLACE_WITH_GATEWAY_CREDENTIAL_ID",
+            "name": "Research Gateway - Inbound Header Auth"
+          }
+        }
+      },
+      {
+        "id": "54014ef3-7a36-4647-9a01-2efa6692e73c",
+        "name": "Call Shared Source Tool",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "workflowId": {
+            "__rl": true,
+            "value": "patent-research-public-core",
+            "mode": "id"
+          },
+          "mode": "each",
+          "options": {
+            "waitForSubWorkflow": true
+          }
+        }
+      },
+      {
+        "id": "1a71971c-9589-4699-bc47-efebc8160d2f",
+        "name": "Return Result",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.4,
+        "position": [
+          650,
+          0
+        ],
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json }}",
+          "options": {}
+        }
+      }
+    ],
+    "connections": {
+      "Research Webhook": {
+        "main": [
+          [
+            {
+              "node": "Call Shared Source Tool",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Call Shared Source Tool": {
+        "main": [
+          [
+            {
+              "node": "Return Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  },
+  {
+    "id": "patent-research-reference-index-core",
+    "name": "Patent Research — Official reference indexes (callable tool)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "f7d7e510-007f-432b-a76a-2acd14e85516",
+        "name": "When Called by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          -600,
+          0
+        ],
+        "parameters": {
+          "inputSource": "passthrough"
+        }
+      },
+      {
+        "id": "7c6bdb2b-9f79-4514-8903-5ddd9702f15f",
+        "name": "Editable Official Indexes",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [
+          -400,
+          0
+        ],
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "06e30afb-770d-4a6b-88f0-2e4a654175b3",
+                "name": "sourceUrls",
+                "type": "string",
+                "value": "{\"mpep-index\":\"https://www.uspto.gov/web/offices/pac/mpep/index.html\",\"frcp-index\":\"https://www.uscourts.gov/forms-rules/current-rules-practice-procedure/federal-rules-civil-procedure\",\"patent-guidance\":\"https://www.uspto.gov/patents/laws/patent-legal-administration\"}"
+              }
+            ]
+          },
+          "includeOtherFields": true,
+          "options": {}
+        }
+      },
+      {
+        "id": "7c843aa9-fd6f-42f2-8aa6-95d769d2de86",
+        "name": "Validate Official Index",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -150,
+          0
+        ],
+        "parameters": {
+          "jsCode": "const j=$input.first().json,b=j.body||j,urls=JSON.parse(j.sourceUrls),url=urls[b.source];if(typeof url!=='string'||!/^https:\\/\\/(www\\.uspto\\.gov|www\\.uscourts\\.gov)\\/[a-zA-Z0-9\\/_-]+(?:\\.html)?$/.test(url))throw new Error('Unknown official reference index');return [{json:{source:b.source,url}}];"
+        }
+      },
+      {
+        "id": "3eaeee4f-97ee-41f1-a282-acfe57efc326",
+        "name": "Retrieve Official Index",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          100,
+          0
+        ],
+        "parameters": {
+          "method": "GET",
+          "url": "={{ $json.url }}",
+          "options": {
+            "timeout": 25000,
+            "redirect": {
+              "redirect": {
+                "followRedirects": false
+              }
+            },
+            "response": {
+              "response": {
+                "fullResponse": true,
+                "neverError": true,
+                "responseFormat": "text"
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "ea5f4baa-8796-4986-bb6e-9e7fa44d6604",
+        "name": "Package Source Response",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          350,
+          0
+        ],
+        "parameters": {
+          "jsCode": "const r=$input.first().json,body=r.body??r.data;if(typeof body!=='string'||body.length>6000000)throw new Error('Unexpected official response');return [{json:{status:r.statusCode,text:body,contentType:r.headers?.['content-type']||''}}];"
+        }
+      }
+    ],
+    "connections": {
+      "When Called by Another Workflow": {
+        "main": [
+          [
+            {
+              "node": "Editable Official Indexes",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Editable Official Indexes": {
+        "main": [
+          [
+            {
+              "node": "Validate Official Index",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Validate Official Index": {
+        "main": [
+          [
+            {
+              "node": "Retrieve Official Index",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Retrieve Official Index": {
+        "main": [
+          [
+            {
+              "node": "Package Source Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  },
+  {
+    "id": "patent-research-reference-index",
+    "name": "Patent Research — Official reference indexes (MCP gateway)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "59fa05c8-7215-445f-9afd-83dc8d8b3adb",
+        "name": "Research Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          -650,
+          0
+        ],
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "patent-research-reference-index",
+          "authentication": "headerAuth",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "webhookId": "c1eb4f49-bb5b-44cc-823b-f8d1589da720",
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "REPLACE_WITH_GATEWAY_CREDENTIAL_ID",
+            "name": "Research Gateway - Inbound Header Auth"
+          }
+        }
+      },
+      {
+        "id": "65e95ad8-2543-4c7f-8a89-2ec781bb2ce2",
+        "name": "Call Shared Source Tool",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "workflowId": {
+            "__rl": true,
+            "value": "patent-research-reference-index-core",
+            "mode": "id"
+          },
+          "mode": "each",
+          "options": {
+            "waitForSubWorkflow": true
+          }
+        }
+      },
+      {
+        "id": "e63766ea-55e7-4d63-8ca3-b09990c609e4",
+        "name": "Return Result",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.4,
+        "position": [
+          650,
+          0
+        ],
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json }}",
+          "options": {}
+        }
+      }
+    ],
+    "connections": {
+      "Research Webhook": {
+        "main": [
+          [
+            {
+              "node": "Call Shared Source Tool",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Call Shared Source Tool": {
+        "main": [
+          [
+            {
+              "node": "Return Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  },
+  {
+    "id": "patent-research-uspto-core",
+    "name": "Patent Research — USPTO — shared existing connection (callable tool)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "7199ebad-3bca-4ebc-87ce-7cd44fb38b8f",
+        "name": "When Called by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          -650,
+          0
+        ],
+        "parameters": {
+          "inputSource": "passthrough"
+        }
+      },
+      {
+        "id": "f11cf42b-81b2-4974-ae6c-5ef628548e0b",
+        "name": "Connection Settings",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [
+          -400,
+          0
+        ],
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "1e9548fe-3761-4992-848b-aa8f0705972e",
+                "name": "sourceUrls",
+                "value": "{\"odp\":\"https://api.uspto.gov/api/v1/patent/applications/search\"}",
+                "type": "string"
+              }
+            ]
+          },
+          "includeOtherFields": true,
+          "options": {}
+        }
+      },
+      {
+        "id": "5f86640a-c89d-4b5b-8b92-76d349eb1e02",
+        "name": "Validate Source Request",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -120,
+          0
+        ],
+        "parameters": {
+          "jsCode": "function validateWorkflowSource(j,route){\n  const b=j.source?j:j.body||{};\n  const urls=JSON.parse(j.sourceUrls),base=urls[b.source];\n  if(typeof base!=='string')throw new Error('Source not configured');\n  let url=b.url||base;\n  const allowed=/^https:\\/\\/(?:www\\.cafc\\.uscourts\\.gov|www\\.uspto\\.gov|api\\.uspto\\.gov|api\\.govinfo\\.gov|www\\.courtlistener\\.com|ops\\.epo\\.org)\\//;\n  if(typeof url!=='string'||!allowed.test(base)||!allowed.test(url)||/[\\s\\\\#\\u0000-\\u001f\\u007f]/.test(url))throw new Error('Unapproved source URL');\n  const requestPath=url.split('?')[0];\n  if(route==='epo'){\n    const suffix=requestPath.slice(base.length);\n    if(!requestPath.startsWith(base)||!/^\\/published-data\\/publication\\/epodoc\\/[A-Z]{2}[0-9]{1,14}[A-Z]?[0-9]?\\/biblio$/.test(suffix))throw new Error('Invalid EPO lookup');\n  }else if(requestPath!==base)throw new Error('Unapproved source path');\n  if(route==='courtlistener'&&!j.internalUseAgreementConfirmed)throw new Error('Confirm internal-tool use agreement in Connection Settings');\n  const method=route==='govinfo'||b.source==='odp'?'POST':'GET';\n  if((b.method||'GET')!==method)throw new Error('Method not allowed');\n  if(JSON.stringify(b).length>16000)throw new Error('Request too large');\n  if(b.source==='odp'){\n    const {q,pagination}=b.body||{};\n    if(typeof q!=='string'||!q.trim()||q.length>2000||!Number.isSafeInteger(pagination?.offset)||pagination.offset<0||!Number.isSafeInteger(pagination?.limit)||pagination.limit<1||pagination.limit>100)throw new Error('Invalid USPTO query or pagination');\n  }\n  if(route==='govinfo'){\n    const body=b.body;\n    if(!body||Array.isArray(body)||typeof body!=='object')throw new Error('Invalid GovInfo request body');\n    const keys=Object.keys(body).sort().join(',');\n    if(keys!=='offsetMark,pageSize,query,sorts')throw new Error('Unexpected GovInfo request fields');\n    if(typeof body.query!=='string'||!body.query.startsWith('collection:USCOURTS ')||!body.query.slice(20).trim()||body.query.length>2020)throw new Error('GovInfo query must target USCOURTS');\n    if(typeof body.pageSize!=='string'||!/^\\d{1,3}$/.test(body.pageSize)||Number(body.pageSize)<1||Number(body.pageSize)>100)throw new Error('Invalid GovInfo page size');\n    if(typeof body.offsetMark!=='string'||!body.offsetMark||body.offsetMark.length>2000||/[\\u0000-\\u001f\\u007f]/.test(body.offsetMark))throw new Error('Invalid GovInfo offset mark');\n    if(!Array.isArray(body.sorts)||body.sorts.length!==1||Object.keys(body.sorts[0]||{}).sort().join(',')!=='field,sortOrder'||body.sorts[0].field!=='score'||body.sorts[0].sortOrder!=='DESC')throw new Error('Invalid GovInfo sort');\n  }\n  if(route==='courtlistener'){\n    const query=url.slice(base.length+1);\n    if(!url.startsWith(base+'?')||!query)throw new Error('Invalid CourtListener query');\n    const values={};\n    for(const part of query.split('&')){\n      const pair=part.split('=');\n      if(pair.length!==2)throw new Error('Invalid CourtListener query');\n      let key,value;try{key=decodeURIComponent(pair[0].replace(/\\+/g,' '));value=decodeURIComponent(pair[1].replace(/\\+/g,' '));}catch{throw new Error('Invalid CourtListener query encoding');}\n      if(!['q','type','cursor'].includes(key)||Object.prototype.hasOwnProperty.call(values,key))throw new Error('Unexpected CourtListener query field');\n      values[key]=value;\n    }\n    if(typeof values.q!=='string'||!values.q.trim()||values.q.length>2000||values.type!=='o'||(values.cursor!==undefined&&(!values.cursor||values.cursor.length>2000)))throw new Error('Invalid CourtListener search parameters');\n    url=base+'?q='+encodeURIComponent(values.q)+'&type=o'+(values.cursor===undefined?'':'&cursor='+encodeURIComponent(values.cursor));\n  }\n  return {url,method,body:b.body||{}};\n};return [{json:validateWorkflowSource($input.first().json,'uspto')}];"
+        }
+      },
+      {
+        "id": "880be4cc-41d4-4093-ae6c-b8dd91906483",
+        "name": "Provider — select credential here",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          350,
+          0
+        ],
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $json.url }}",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth",
+          "options": {
+            "timeout": 25000,
+            "redirect": {
+              "redirect": {
+                "followRedirects": false
+              }
+            }
+          },
+          "sendBody": true,
+          "contentType": "raw",
+          "rawContentType": "application/json",
+          "body": "={{ JSON.stringify($json.body) }}"
+        },
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "REPLACE_WITH_USPTO_CREDENTIAL_ID",
+            "name": "USPTO ODP API Key"
+          }
+        }
+      },
+      {
+        "id": "c95cee0b-15a4-4d99-8215-c676d722408a",
+        "name": "Package Source Response",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          500,
+          0
+        ],
+        "parameters": {
+          "jsCode": "return [{json:{text:JSON.stringify($input.first().json),status:200,contentType:'application/json'}}];"
+        }
+      }
+    ],
+    "connections": {
+      "When Called by Another Workflow": {
+        "main": [
+          [
+            {
+              "node": "Connection Settings",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Connection Settings": {
+        "main": [
+          [
+            {
+              "node": "Validate Source Request",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Validate Source Request": {
+        "main": [
+          [
+            {
+              "node": "Provider — select credential here",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Provider — select credential here": {
+        "main": [
+          [
+            {
+              "node": "Package Source Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  },
+  {
+    "id": "patent-research-uspto",
+    "name": "Patent Research — USPTO — shared existing connection (MCP gateway)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "476bd264-dc5e-4da5-a0d7-ebdcee6cb370",
+        "name": "Research Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          -650,
+          0
+        ],
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "patent-research-uspto",
+          "authentication": "headerAuth",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "webhookId": "dba24e04-755f-4d9e-96af-3b984abcb7cc",
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "REPLACE_WITH_GATEWAY_CREDENTIAL_ID",
+            "name": "Research Gateway - Inbound Header Auth"
+          }
+        }
+      },
+      {
+        "id": "1b3d3e79-ca0c-4b0d-b075-dcff6227c850",
+        "name": "Call Shared Source Tool",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "workflowId": {
+            "__rl": true,
+            "value": "patent-research-uspto-core",
+            "mode": "id"
+          },
+          "mode": "each",
+          "options": {
+            "waitForSubWorkflow": true
+          }
+        }
+      },
+      {
+        "id": "0eb09200-3b5f-4988-b78f-f6de60c0f4c5",
+        "name": "Return Result",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.4,
+        "position": [
+          650,
+          0
+        ],
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json }}",
+          "options": {}
+        }
+      }
+    ],
+    "connections": {
+      "Research Webhook": {
+        "main": [
+          [
+            {
+              "node": "Call Shared Source Tool",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Call Shared Source Tool": {
+        "main": [
+          [
+            {
+              "node": "Return Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  }
+]

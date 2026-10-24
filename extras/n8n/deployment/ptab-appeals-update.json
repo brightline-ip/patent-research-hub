@@ -1,0 +1,259 @@
+[
+  {
+    "id": "patent-research-ptab-core",
+    "name": "Patent Research — PTAB — credential setup required (callable tool)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "0a583f62-d4c8-46ee-a4f4-63fe40b26bcd",
+        "name": "When Called by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          -650,
+          0
+        ],
+        "parameters": {
+          "inputSource": "passthrough"
+        }
+      },
+      {
+        "id": "609308fd-4a77-48d0-8c19-aa6f810500ed",
+        "name": "Connection Settings",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [
+          -400,
+          0
+        ],
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "7740293e-293c-48f3-83b3-8bcec1b82642",
+                "name": "sourceUrls",
+                "value": "{\"ptab-trials\":\"https://api.uspto.gov/api/v1/patent/trials/decisions/search\",\"ptab-appeals\":\"https://api.uspto.gov/api/v1/patent/appeals/decisions/search\"}",
+                "type": "string"
+              }
+            ]
+          },
+          "includeOtherFields": true,
+          "options": {}
+        }
+      },
+      {
+        "id": "7a5d16b5-1e4d-482b-9ef6-5562a2d3dbfc",
+        "name": "Validate Source Request",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -120,
+          0
+        ],
+        "parameters": {
+          "jsCode": "function validateWorkflowSource(j,route){\n  const b=j.source?j:j.body||{};\n  const urls=JSON.parse(j.sourceUrls),base=urls[b.source];\n  if(typeof base!=='string')throw new Error('Source not configured');\n  const url=b.url||base;\n  const allowed=/^https:\\/\\/(?:www\\.cafc\\.uscourts\\.gov|www\\.uspto\\.gov|api\\.uspto\\.gov|api\\.govinfo\\.gov|www\\.courtlistener\\.com|ops\\.epo\\.org)\\//;\n  if(typeof url!=='string'||!allowed.test(base)||!allowed.test(url)||/[\\s\\\\#\\u0000-\\u001f\\u007f]/.test(url))throw new Error('Unapproved source URL');\n  const requestPath=url.split('?')[0];\n  if(route==='epo'){\n    const suffix=requestPath.slice(base.length);\n    if(!requestPath.startsWith(base)||!/^\\/published-data\\/publication\\/epodoc\\/[A-Z]{2}[0-9]{1,14}[A-Z]?[0-9]?\\/biblio$/.test(suffix))throw new Error('Invalid EPO lookup');\n  }else if(requestPath!==base)throw new Error('Unapproved source path');\n  if(route==='courtlistener'&&!j.internalUseAgreementConfirmed)throw new Error('Confirm internal-tool use agreement in Connection Settings');\n  const method=route==='govinfo'||b.source==='odp'?'POST':'GET';\n  if((b.method||'GET')!==method)throw new Error('Method not allowed');\n  if(JSON.stringify(b).length>16000)throw new Error('Request too large');\n  if(b.source==='odp'){\n    const {q,pagination}=b.body||{};\n    if(typeof q!=='string'||!q.trim()||q.length>2000||!Number.isSafeInteger(pagination?.offset)||pagination.offset<0||!Number.isSafeInteger(pagination?.limit)||pagination.limit<1||pagination.limit>100)throw new Error('Invalid USPTO query or pagination');\n  }\n  return {url,method,body:b.body||{}};\n};return [{json:validateWorkflowSource($input.first().json,'ptab')}];"
+        }
+      },
+      {
+        "id": "efc3c992-cc7e-4256-9b0b-43120f95b871",
+        "name": "Provider — select credential here",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          350,
+          0
+        ],
+        "parameters": {
+          "method": "GET",
+          "url": "={{ $json.url }}",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth",
+          "options": {
+            "timeout": 25000,
+            "redirect": {
+              "redirect": {
+                "followRedirects": false
+              }
+            }
+          },
+          "sendBody": false,
+          "contentType": "raw",
+          "rawContentType": "application/json",
+          "body": "={{ JSON.stringify($json.body) }}"
+        },
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "REPLACE_WITH_USPTO_CREDENTIAL_ID",
+            "name": "USPTO ODP API Key"
+          }
+        }
+      },
+      {
+        "id": "45d9919e-82e5-41ab-a8d0-5140bdd8053c",
+        "name": "Package Source Response",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          500,
+          0
+        ],
+        "parameters": {
+          "jsCode": "return [{json:{text:JSON.stringify($input.first().json),status:200,contentType:'application/json'}}];"
+        }
+      }
+    ],
+    "connections": {
+      "When Called by Another Workflow": {
+        "main": [
+          [
+            {
+              "node": "Connection Settings",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Connection Settings": {
+        "main": [
+          [
+            {
+              "node": "Validate Source Request",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Validate Source Request": {
+        "main": [
+          [
+            {
+              "node": "Provider — select credential here",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Provider — select credential here": {
+        "main": [
+          [
+            {
+              "node": "Package Source Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  },
+  {
+    "id": "patent-research-ptab",
+    "name": "Patent Research — PTAB — credential setup required (MCP gateway)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "a6f319d7-778a-4ae8-ac24-e0e24fe3805d",
+        "name": "Research Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          -650,
+          0
+        ],
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "patent-research-ptab",
+          "authentication": "headerAuth",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "webhookId": "16b92e03-834a-44e9-9224-a34e2aa05ab9",
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "REPLACE_WITH_GATEWAY_CREDENTIAL_ID",
+            "name": "Research Gateway - Inbound Header Auth"
+          }
+        }
+      },
+      {
+        "id": "982a26a0-9deb-42c4-a1ea-90534a468879",
+        "name": "Call Shared Source Tool",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "workflowId": {
+            "__rl": true,
+            "value": "patent-research-ptab-core",
+            "mode": "id"
+          },
+          "mode": "each",
+          "options": {
+            "waitForSubWorkflow": true
+          }
+        }
+      },
+      {
+        "id": "d181e35d-7f86-4432-920d-26bb7e00a55c",
+        "name": "Return Result",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.4,
+        "position": [
+          650,
+          0
+        ],
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json }}",
+          "options": {}
+        }
+      }
+    ],
+    "connections": {
+      "Research Webhook": {
+        "main": [
+          [
+            {
+              "node": "Call Shared Source Tool",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Call Shared Source Tool": {
+        "main": [
+          [
+            {
+              "node": "Return Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  }
+]

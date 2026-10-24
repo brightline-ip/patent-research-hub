@@ -1,0 +1,153 @@
+{
+  "id": "patent-research-reference-index-core",
+  "name": "Patent Research — Official reference indexes (callable tool)",
+  "active": false,
+  "nodes": [
+    {
+      "id": "f7d7e510-007f-432b-a76a-2acd14e85516",
+      "name": "When Called by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -600,
+        0
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "7c6bdb2b-9f79-4514-8903-5ddd9702f15f",
+      "name": "Editable Official Indexes",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -400,
+        0
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "06e30afb-770d-4a6b-88f0-2e4a654175b3",
+              "name": "sourceUrls",
+              "type": "string",
+              "value": "{\"mpep-index\":\"https://www.uspto.gov/web/offices/pac/mpep/index.html\",\"frcp-index\":\"https://www.uscourts.gov/forms-rules/current-rules-practice-procedure/federal-rules-civil-procedure\",\"patent-guidance\":\"https://www.uspto.gov/patents/laws/patent-legal-administration\"}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "7c843aa9-fd6f-42f2-8aa6-95d769d2de86",
+      "name": "Validate Official Index",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -150,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const j=$input.first().json,b=j.body||j,urls=JSON.parse(j.sourceUrls),url=urls[b.source];if(typeof url!=='string'||!/^https:\\/\\/(www\\.uspto\\.gov|www\\.uscourts\\.gov)\\/[a-zA-Z0-9\\/_-]+(?:\\.html)?$/.test(url))throw new Error('Unknown official reference index');return [{json:{source:b.source,url}}];"
+      }
+    },
+    {
+      "id": "3eaeee4f-97ee-41f1-a282-acfe57efc326",
+      "name": "Retrieve Official Index",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        100,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.url }}",
+        "options": {
+          "timeout": 25000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "ea5f4baa-8796-4986-bb6e-9e7fa44d6604",
+      "name": "Package Source Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        350,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const r=$input.first().json,body=r.body??r.data;if(typeof body!=='string'||body.length>6000000)throw new Error('Unexpected official response');return [{json:{status:r.statusCode,text:body,contentType:r.headers?.['content-type']||''}}];"
+      }
+    }
+  ],
+  "connections": {
+    "When Called by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Editable Official Indexes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Editable Official Indexes": {
+      "main": [
+        [
+          {
+            "node": "Validate Official Index",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Official Index": {
+      "main": [
+        [
+          {
+            "node": "Retrieve Official Index",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retrieve Official Index": {
+      "main": [
+        [
+          {
+            "node": "Package Source Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionTimeout": 270,
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "none",
+    "saveExecutionProgress": false,
+    "saveManualExecutions": false,
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

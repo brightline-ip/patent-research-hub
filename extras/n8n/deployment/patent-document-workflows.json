@@ -1,0 +1,409 @@
+[
+  {
+    "id": "patent-research-application-documents-core",
+    "name": "Patent Research — Application documents (callable tool)",
+    "description": null,
+    "active": false,
+    "nodes": [
+      {
+        "id": "696feb2c-90bf-49a5-af66-f55e019c3d42",
+        "name": "When Called",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          -600,
+          0
+        ],
+        "parameters": {
+          "inputSource": "passthrough"
+        }
+      },
+      {
+        "id": "39c7e786-d4e5-44a1-a674-ae94a95c6c86",
+        "name": "Validate Application",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -300,
+          0
+        ],
+        "parameters": {
+          "jsCode": "const j=$input.first().json;const b=j.application_number?j:j.body||{};if(!/^\\d{8}$/.test(b.application_number||''))throw Error('Public US application number must contain eight digits');return [{json:{application_number:b.application_number,url:'https://api.uspto.gov/api/v1/patent/applications/'+b.application_number+'/documents'}}];"
+        }
+      },
+      {
+        "id": "0446684b-c63d-4b87-84f4-500344e6f790",
+        "name": "Read Official Document List",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "method": "GET",
+          "url": "={{ $json.url }}",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth",
+          "options": {
+            "timeout": 60000,
+            "redirect": {
+              "redirect": {
+                "followRedirects": false
+              }
+            },
+            "response": {
+              "response": {
+                "responseFormat": "json",
+                "fullResponse": true,
+                "neverError": true
+              }
+            }
+          }
+        },
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "REPLACE_WITH_USPTO_CREDENTIAL_ID",
+            "name": "USPTO ODP API Key"
+          }
+        }
+      },
+      {
+        "id": "9fedbc60-28e6-45cd-b0f3-6fcaae78f0f8",
+        "name": "Package Document List",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          300,
+          0
+        ],
+        "parameters": {
+          "jsCode": "const r=$input.first().json;if(r.statusCode!==200)throw Error('USPTO document list HTTP '+Number(r.statusCode||0));return [{json:{application_number:$('Validate Application').first().json.application_number,source_url:$('Validate Application').first().json.url,retrieved_at:new Date().toISOString(),status:200,body:r.body}}];"
+        }
+      }
+    ],
+    "connections": {
+      "When Called": {
+        "main": [
+          [
+            {
+              "node": "Validate Application",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Validate Application": {
+        "main": [
+          [
+            {
+              "node": "Read Official Document List",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Read Official Document List": {
+        "main": [
+          [
+            {
+              "node": "Package Document List",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  },
+  {
+    "id": "patent-research-application-documents",
+    "name": "Patent Research — Application documents (authenticated gateway)",
+    "description": null,
+    "active": false,
+    "nodes": [
+      {
+        "id": "16c9cf6e-37ea-42bb-8775-31c316f88071",
+        "name": "Research Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          -650,
+          0
+        ],
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "patent-research-application-documents",
+          "authentication": "headerAuth",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "webhookId": "379a8458-7da0-47ec-bdcf-4d17a01001d2",
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "REPLACE_WITH_GATEWAY_CREDENTIAL_ID",
+            "name": "Research Gateway - Inbound Header Auth"
+          }
+        }
+      },
+      {
+        "id": "4a699a90-4fa6-4487-b844-8f66a0015b7e",
+        "name": "Call Shared Source Tool",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "workflowId": {
+            "__rl": true,
+            "value": "patent-research-application-documents-core",
+            "mode": "id"
+          },
+          "mode": "each",
+          "options": {
+            "waitForSubWorkflow": true
+          }
+        }
+      },
+      {
+        "id": "02840e3d-95df-484b-ad2f-255f780b911f",
+        "name": "Return Result",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.4,
+        "position": [
+          650,
+          0
+        ],
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json }}",
+          "options": {}
+        }
+      }
+    ],
+    "connections": {
+      "Research Webhook": {
+        "main": [
+          [
+            {
+              "node": "Call Shared Source Tool",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Call Shared Source Tool": {
+        "main": [
+          [
+            {
+              "node": "Return Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  },
+  {
+    "id": "patent-research-application-pdf-core",
+    "name": "Patent Research — Application PDF (callable tool)",
+    "description": null,
+    "active": false,
+    "nodes": [
+      {
+        "id": "64d34346-c9d9-44d6-be2d-ddde31defd5c",
+        "name": "When Called by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          -650,
+          0
+        ],
+        "parameters": {
+          "inputSource": "passthrough"
+        }
+      },
+      {
+        "id": "patent-stream-original",
+        "name": "Stream and Verify USPTO Original",
+        "type": "n8n-nodes-patent-research.usptoOriginal",
+        "typeVersion": 1,
+        "position": [
+          -200,
+          0
+        ],
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "REPLACE_WITH_USPTO_CREDENTIAL_ID",
+            "name": "USPTO ODP API Key"
+          }
+        },
+        "parameters": {
+          "applicationNumber": "={{ $json.application_number || $json.body?.application_number }}",
+          "documentIdentifier": "={{ $json.document_identifier || $json.body?.document_identifier }}",
+          "nativeFilename": "={{ $json.native_filename ?? $json.body?.native_filename ?? '' }}",
+          "maxBytes": 10485760,
+          "timeoutMs": 60000
+        }
+      },
+      {
+        "id": "patent-stream-note",
+        "name": "Streaming Boundary",
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          -650,
+          -300
+        ],
+        "parameters": {
+          "width": 800,
+          "height": 230,
+          "content": "## Local candidate — deploy node package before this workflow\nInstall custom-nodes/n8n-nodes-patent-research into the reviewed n8n runtime. Reuse the existing USPTO Header Auth credential; do not put its value in expressions.\n\nCaps each body as chunks arrive (10 MiB maximum), enforces a single 60-second deadline, checks actual MIME/length/signature, rejects nonpublic DNS and pins the resolved IP. Follows one exact USPTO signed redirect without the API key. Signed URLs never become node outputs. At most two in-flight originals per process; no automatic retries.\n\nReturns the same identity-bound PDF/DOCX envelope. No normalization, corpus indexing or legal verification is implied."
+        }
+      }
+    ],
+    "connections": {
+      "When Called by Another Workflow": {
+        "main": [
+          [
+            {
+              "node": "Stream and Verify USPTO Original",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  },
+  {
+    "id": "patent-research-application-pdf",
+    "name": "Patent Research — Application PDF (authenticated gateway)",
+    "description": null,
+    "active": false,
+    "nodes": [
+      {
+        "id": "bfd484bb-cb1c-480a-afb7-b69a679c1662",
+        "name": "Research Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          -650,
+          0
+        ],
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "patent-research-application-pdf",
+          "authentication": "headerAuth",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "webhookId": "ed5b0f2f-4064-41d1-bd44-704e90b008bd",
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "REPLACE_WITH_GATEWAY_CREDENTIAL_ID",
+            "name": "Research Gateway - Inbound Header Auth"
+          }
+        }
+      },
+      {
+        "id": "b1ba4e87-006f-46a4-ba80-0dde11d30f94",
+        "name": "Call Shared Source Tool",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "workflowId": {
+            "__rl": true,
+            "value": "patent-research-application-pdf-core",
+            "mode": "id"
+          },
+          "mode": "each",
+          "options": {
+            "waitForSubWorkflow": true
+          }
+        }
+      },
+      {
+        "id": "c8d3dfdf-6739-49ab-9fef-c16e32cc6a14",
+        "name": "Return Result",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.4,
+        "position": [
+          650,
+          0
+        ],
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json }}",
+          "options": {}
+        }
+      }
+    ],
+    "connections": {
+      "Research Webhook": {
+        "main": [
+          [
+            {
+              "node": "Call Shared Source Tool",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Call Shared Source Tool": {
+        "main": [
+          [
+            {
+              "node": "Return Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  }
+]

@@ -1,0 +1,343 @@
+[
+  {
+    "id": "patent-research-google-bigquery-query-core",
+    "name": "Patent Research — Google BigQuery capped CPC trend (credential setup required)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "337c7c9f-6635-4ee1-83ef-824e97ad3394",
+        "name": "When Called by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          -820,
+          0
+        ],
+        "parameters": {
+          "inputSource": "passthrough"
+        }
+      },
+      {
+        "id": "3ed39ad6-22b4-4d63-9fc3-6b8e1a4fa681",
+        "name": "Capped Sandbox Policy",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [
+          -600,
+          0
+        ],
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "24e74648-c699-4742-bd8e-9574e6db15ec",
+                "name": "projectId",
+                "type": "string",
+                "value": "REPLACE_WITH_YOUR_PROJECT_ID"
+              },
+              {
+                "id": "08d05c06-b7c2-45bb-951e-86decb5797d1",
+                "name": "executionEnabled",
+                "type": "boolean",
+                "value": true
+              },
+              {
+                "id": "46bac240-5065-4fdc-a904-dd24e3620bb3",
+                "name": "billingMode",
+                "type": "string",
+                "value": "sandbox-no-billing"
+              },
+              {
+                "id": "7dce70c5-09bf-41dc-935d-768eea92a715",
+                "name": "maximumBytesBilled",
+                "type": "string",
+                "value": "26843545600"
+              }
+            ]
+          },
+          "includeOtherFields": true,
+          "options": {}
+        }
+      },
+      {
+        "id": "39271bae-e17c-4968-bbd0-c73109ee29ba",
+        "name": "Build Fixed CPC Trend Query",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -350,
+          0
+        ],
+        "parameters": {
+          "jsCode": "function externalAccess({source,query='',publication='',cpc='',from=2021,to=2025}={}){\n if(typeof query!=='string'||query.length>1000)throw new Error('Invalid public search query');\n if(source==='patentbots')return {source,mode:'interactive-reference',url:'https://www.patentbots.com/stats/',searchFor:query,authority:'secondary-derived-examiner-analytics',access:'Basic statistics require a free login; premium detail requires a subscription.',automaticPolling:false,reason:'Published terms prohibit systematic downloading and scraping. Use an authorized provider integration if one is agreed.',terms:'https://www.patentbots.com/terms',warning:'Grant rates, difficulty and predictions are vendor calculations, not USPTO findings.'};\n if(source==='freepatentsonline')return {source,mode:'hosted-search-link',url:'https://www.freepatentsonline.com/Search/SearchBox.html?query_txt='+encodeURIComponent(query),searchFor:query,retrieved:false,authority:'third-party-reproduction-and-metadata',access:'Website search and free account features are available. The provider separately advertises commercial API and custom data services.',automaticPolling:false,reason:'No public free API entitlement or automated polling permission has been verified.',fields:'Website search supports patent text, dates, assignees, inventors, examiner names and classifications.',warning:'Search results and vendor metadata are leads. Verify patent text and legal status against the issuing authority or the original document.',docs:'https://www.freepatentsonline.com/search.html'};\n if(source==='wipo-patentscope')return {source,mode:'interactive-reference',url:'https://patentscope.wipo.int/search/en/search.jsf',searchFor:query,retrieved:false,authority:'official-wipo-search',access:'Free website search; a free WIPO account adds saved searches and larger exports.',automaticPolling:false,reason:'No general free automation API has been established for this connector.',coverage:'PCT publications and participating national and regional collections. Coverage differs by office and field.',docs:'https://www.wipo.int/en/web/patentscope/faqs_patentscope'};\n if(source==='google-patents'){\n  if(publication){const id=publication.toUpperCase().replace(/[\\s,-]/g,'');if(!/^[A-Z]{2}\\d{4,15}[A-Z]\\d?$/.test(id))throw new Error('Use a publication identifier with kind code, for example US11244675B2');return {source,mode:'publication-link',url:'https://patents.google.com/patent/'+id+'/en',publication:id,authority:'third-party-reproduction',retrieved:false,warning:'Read the original PDF; metadata, translations and legal-status annotations are distinct from the original patent.'};}\n  return {source,mode:'hosted-search-link',url:'https://patents.google.com/?q='+encodeURIComponent(query),retrieved:false,exportLimit:'Google documents CSV export of up to the top 1000 results; this is not a complete CPC population.',help:'https://support.google.com/faqs/answer/7049588?hl=en'};\n }\n if(source==='google-bigquery'){\n  const code=cpc.toUpperCase().replace(/\\s/g,'');if(!/^[A-HY]\\d{2}[A-Z](?:\\d{1,4}\\/\\d{2,6})?$/.test(code))throw new Error('Supply a CPC subclass or full symbol');\n  if(!Number.isInteger(from)||!Number.isInteger(to)||from<1970||to<from||to>new Date().getUTCFullYear()||to-from>30)throw new Error('Invalid year range');\n  const subclass=/^[A-HY]\\d{2}[A-Z]$/.test(code);\n  const sql='SELECT DIV(publication_date,10000) AS year, COUNT(DISTINCT publication_number) AS publications\\nFROM `patents-public-data.patents.publications`\\nWHERE country_code = @country AND publication_date BETWEEN @start_date AND @end_date\\nAND EXISTS (SELECT 1 FROM UNNEST(cpc) AS c WHERE '+(subclass?'STARTS_WITH(c.code,@cpc)':'c.code=@cpc')+')\\nGROUP BY year ORDER BY year';\n  const param=(name,type,value)=>({name,parameterType:{type},parameterValue:{value:String(value)}});\n  return {source,mode:'query-plan-only',connected:false,projectRequired:true,consoleUrl:'https://console.cloud.google.com/bigquery',table:'patents-public-data.patents.publications',parameters:{country:'US',cpc:code,from,to},tableFreshness:'The table and referenced fields were live-validated on 2026-09-06. The capped report tool returns the provider table-modification timestamp for each run.',request:{configuration:{dryRun:true,query:{query:sql,useLegacySql:false,parameterMode:'NAMED',queryParameters:[param('country','STRING','US'),param('cpc','STRING',code),param('start_date','INT64',from*10000+101),param('end_date','INT64',to*10000+1231)]}}},countingUnit:'distinct US publication numbers by publication year',cpcMatch:subclass?'subclass prefix':'exact symbol',execution:'This function returns a plan and does not execute it. Use research_bigquery_estimate for a dry run or research_bigquery_cpc_report for the separately capped no-billing-sandbox query and report.',coverage:'Not application filing counts or patent-family counts; grants and application publications can represent the same invention. Recent unpublished applications are absent.',docs:'https://docs.cloud.google.com/bigquery/public-data'};\n }\n throw new Error('Unknown external provider');\n}\nfunction buildBigQueryExecutionRequest(plan,maximumBytesBilled){\n if(!plan?.request?.configuration?.query||plan.request.configuration.dryRun!==true)throw new Error('BigQuery execution requires the fixed dry-run plan');\n if(typeof maximumBytesBilled!=='string'||!/^[1-9]\\d*$/.test(maximumBytesBilled))throw new Error('Invalid BigQuery execution ceiling');\n const query=plan.request.configuration.query;\n return {...query,dryRun:false,useQueryCache:true,maxResults:31,timeoutMs:120000,jobTimeoutMs:'180000',maximumBytesBilled,labels:{application:'patent_research',operation:'cpc_publication_trend'}};\n};const j=$input.first().json,b=j.body||j;if(j.executionEnabled!==true||j.billingMode!=='sandbox-no-billing')throw new Error('Capped sandbox execution policy is disabled');if(!/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(j.projectId))throw new Error('Set the isolated Google Cloud project ID');const plan=externalAccess({source:'google-bigquery',cpc:b.cpc,from:b.from,to:b.to});const request=buildBigQueryExecutionRequest(plan,j.maximumBytesBilled);return [{json:{queryUrl:'https://bigquery.googleapis.com/bigquery/v2/projects/'+j.projectId+'/queries',metadataUrl:'https://bigquery.googleapis.com/bigquery/v2/projects/patents-public-data/datasets/patents/tables/publications',request,maximumBytesBilled:j.maximumBytesBilled}}];"
+        }
+      },
+      {
+        "id": "8ee53f00-f631-4828-ba2a-513ae308cea2",
+        "name": "Read Google Patents table metadata",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          -80,
+          0
+        ],
+        "parameters": {
+          "method": "GET",
+          "url": "={{ $json.metadataUrl }}",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "googleBigQueryOAuth2Api",
+          "options": {
+            "timeout": 180000,
+            "redirect": {
+              "redirect": {
+                "followRedirects": false
+              }
+            },
+            "response": {
+              "response": {
+                "fullResponse": true,
+                "neverError": true,
+                "responseFormat": "json"
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "b5d599fd-49c3-4a27-a3a2-50e6eed53c3a",
+        "name": "Validate Google Patents table metadata",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          190,
+          0
+        ],
+        "parameters": {
+          "jsCode": "const r=$input.first().json,b=r.body??r.data??{},built=$('Build Fixed CPC Trend Query').first().json,t=b.tableReference;if(r.statusCode!==200||t?.projectId!=='patents-public-data'||t?.datasetId!=='patents'||t?.tableId!=='publications'||!/^(0|[1-9]\\d*)$/.test(b.lastModifiedTime||'')||!/^(0|[1-9]\\d*)$/.test(b.numRows||'')||!/^(0|[1-9]\\d*)$/.test(b.numBytes||''))throw new Error('Google Patents table metadata could not be verified');return [{json:{...built,tableMetadata:{projectId:t.projectId,datasetId:t.datasetId,tableId:t.tableId,lastModifiedTime:b.lastModifiedTime,numRows:b.numRows,numBytes:b.numBytes}}}];"
+        }
+      },
+      {
+        "id": "ec3437f9-eb58-44ae-a052-e091cceddad5",
+        "name": "Execute capped CPC trend query",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          470,
+          0
+        ],
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $json.queryUrl }}",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "googleBigQueryOAuth2Api",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ $json.request }}",
+          "options": {
+            "timeout": 180000,
+            "redirect": {
+              "redirect": {
+                "followRedirects": false
+              }
+            },
+            "response": {
+              "response": {
+                "fullResponse": true,
+                "neverError": true,
+                "responseFormat": "json"
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "8443bcb0-e5cb-4635-80cb-a2b805c3f064",
+        "name": "Return Verified Query Envelope",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          750,
+          0
+        ],
+        "parameters": {
+          "jsCode": "const r=$input.first().json,b=r.body??r.data??{},built=$('Validate Google Patents table metadata').first().json;return [{json:{status:r.statusCode,dryRun:false,executedDataQuery:r.statusCode===200&&b.jobComplete===true&&!b.error&&!(b.errors?.length),jobComplete:b.jobComplete===true,jobReference:b.jobReference,schema:b.schema,rows:b.rows||[],totalRows:b.totalRows,totalBytesProcessed:b.totalBytesProcessed,totalBytesBilled:b.totalBytesBilled,cacheHit:b.cacheHit===true,error:b.error,errors:b.errors,maximumBytesBilled:built.maximumBytesBilled,tableMetadataStatus:200,tableMetadata:built.tableMetadata}}];"
+        }
+      }
+    ],
+    "connections": {
+      "When Called by Another Workflow": {
+        "main": [
+          [
+            {
+              "node": "Capped Sandbox Policy",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Capped Sandbox Policy": {
+        "main": [
+          [
+            {
+              "node": "Build Fixed CPC Trend Query",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Fixed CPC Trend Query": {
+        "main": [
+          [
+            {
+              "node": "Read Google Patents table metadata",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Read Google Patents table metadata": {
+        "main": [
+          [
+            {
+              "node": "Validate Google Patents table metadata",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Validate Google Patents table metadata": {
+        "main": [
+          [
+            {
+              "node": "Execute capped CPC trend query",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Execute capped CPC trend query": {
+        "main": [
+          [
+            {
+              "node": "Return Verified Query Envelope",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  },
+  {
+    "id": "patent-research-google-bigquery-query",
+    "name": "Patent Research — Google BigQuery capped CPC trend (MCP gateway)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "55956bb7-61ee-49c5-a4d0-8f9349305424",
+        "name": "Research Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          -650,
+          0
+        ],
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "patent-research-google-bigquery-query",
+          "authentication": "headerAuth",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "webhookId": "eeca0f3a-6bd1-42c0-abc4-68b0121e4cd7",
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "REPLACE_WITH_GATEWAY_CREDENTIAL_ID",
+            "name": "Research Gateway - Inbound Header Auth"
+          }
+        }
+      },
+      {
+        "id": "85fa91af-11d9-4e0f-8aa7-860adf65f976",
+        "name": "Call Shared Source Tool",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "workflowId": {
+            "__rl": true,
+            "value": "patent-research-google-bigquery-query-core",
+            "mode": "id"
+          },
+          "mode": "each",
+          "options": {
+            "waitForSubWorkflow": true
+          }
+        }
+      },
+      {
+        "id": "b684915d-c693-4aeb-b1d5-ffe3a30b62a2",
+        "name": "Return Result",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.4,
+        "position": [
+          650,
+          0
+        ],
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json }}",
+          "options": {}
+        }
+      }
+    ],
+    "connections": {
+      "Research Webhook": {
+        "main": [
+          [
+            {
+              "node": "Call Shared Source Tool",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Call Shared Source Tool": {
+        "main": [
+          [
+            {
+              "node": "Return Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionTimeout": 270,
+      "saveDataSuccessExecution": "none",
+      "saveDataErrorExecution": "none",
+      "saveExecutionProgress": false,
+      "saveManualExecutions": false,
+      "callerPolicy": "workflowsFromSameOwner"
+    }
+  }
+]

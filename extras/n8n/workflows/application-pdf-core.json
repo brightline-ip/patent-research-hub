@@ -1,0 +1,80 @@
+{
+  "id": "patent-research-application-pdf-core",
+  "name": "Patent Research — Application PDF (callable tool)",
+  "description": null,
+  "active": false,
+  "nodes": [
+    {
+      "id": "64d34346-c9d9-44d6-be2d-ddde31defd5c",
+      "name": "When Called by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -650,
+        0
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "patent-stream-original",
+      "name": "Stream and Verify USPTO Original",
+      "type": "n8n-nodes-patent-research.usptoOriginal",
+      "typeVersion": 1,
+      "position": [
+        -200,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_USPTO_CREDENTIAL_ID",
+          "name": "USPTO ODP API Key"
+        }
+      },
+      "parameters": {
+        "applicationNumber": "={{ $json.application_number || $json.body?.application_number }}",
+        "documentIdentifier": "={{ $json.document_identifier || $json.body?.document_identifier }}",
+        "nativeFilename": "={{ $json.native_filename ?? $json.body?.native_filename ?? '' }}",
+        "maxBytes": 10485760,
+        "timeoutMs": 60000
+      }
+    },
+    {
+      "id": "patent-stream-note",
+      "name": "Streaming Boundary",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -650,
+        -300
+      ],
+      "parameters": {
+        "width": 800,
+        "height": 230,
+        "content": "## Local candidate — deploy node package before this workflow\nInstall custom-nodes/n8n-nodes-patent-research into the reviewed n8n runtime. Reuse the existing USPTO Header Auth credential; do not put its value in expressions.\n\nCaps each body as chunks arrive (10 MiB maximum), enforces a single 60-second deadline, checks actual MIME/length/signature, rejects nonpublic DNS and pins the resolved IP. Follows one exact USPTO signed redirect without the API key. Signed URLs never become node outputs. At most two in-flight originals per process; no automatic retries.\n\nReturns the same identity-bound PDF/DOCX envelope. No normalization, corpus indexing or legal verification is implied."
+      }
+    }
+  ],
+  "connections": {
+    "When Called by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Stream and Verify USPTO Original",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionTimeout": 270,
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "none",
+    "saveExecutionProgress": false,
+    "saveManualExecutions": false,
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}
