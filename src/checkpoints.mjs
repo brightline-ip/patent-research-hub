@@ -4,7 +4,8 @@ import {randomUUID} from 'node:crypto';
 import {dataDir,readConfig} from './config.mjs';
 const checkpointRoot=()=>path.join(dataDir(readConfig()),'checkpoints');
 import {assertNoSensitiveText} from './security.mjs';
-export const sessionKey=id=>{if(typeof id!=='string'||!/^[a-zA-Z0-9_-]{1,100}$/.test(id))throw new Error('Use a short session name containing letters, numbers, hyphens or underscores');return id;};
+import {assertNotReservedName} from './names.mjs';
+export const sessionKey=id=>{if(typeof id!=='string'||!/^[a-zA-Z0-9_-]{1,100}$/.test(id))throw new Error('Use a short session name containing letters, numbers, hyphens or underscores');return assertNotReservedName(id,'session name');};
 export async function checkpoint(data){
   const id=sessionKey(data.session),serialized=JSON.stringify(data);
   if(serialized.length>40000)throw new Error('Checkpoint exceeds 40,000 characters; keep sources in the corpus');

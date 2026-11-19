@@ -74,20 +74,46 @@ function Update-SessionPath {
 # The current user's SID, for access lists (names can fail for some Microsoft or work accounts).
 function Get-PrhUserSid { return ('*' + [Security.Principal.WindowsIdentity]::GetCurrent().User.Value) }
 
-# Folder or file readable only by the current user. Raises if icacls fails.
+# Runs icacls.exe without letting $ErrorActionPreference = 'Stop' turn its stderr text into a raw terminating error: the
+# exit code decides, and a failure gets a plain-language message.
+function Invoke-PrhIcacls([string]$Path, [string[]]$IcaclsArgs, [string]$Problem) {
+    $old = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+    try { $null = & icacls.exe $Path @IcaclsArgs 2>&1; $code = $LASTEXITCODE }
+    finally { $ErrorActionPreference = $old }
+    if ($code -ne 0) { throw "$Problem Make sure the folder is on an NTFS drive and belongs to your account, then run Setup again. (icacls code $code, path $Path)" }
+}
+
+# Folder or file accessible only by the current user: no SYSTEM or Administrators entry is added. Raises if icacls fails.
 function Set-PrhUserOnly([string]$Path, [switch]$Folder) {
     $grant = if ($Folder) { (Get-PrhUserSid) + ':(OI)(CI)F' } else { (Get-PrhUserSid) + ':F' }
     # /reset first: /grant:r alone leaves any extra explicit entry (for example one added by hand) in place.
-    $null = & icacls.exe $Path /reset 2>&1
-    if ($LASTEXITCODE -ne 0) { throw "Could not reset the access list of $Path (icacls code $LASTEXITCODE)." }
-    $null = & icacls.exe $Path /inheritance:r /grant:r $grant 2>&1
-    if ($LASTEXITCODE -ne 0) { throw "Could not restrict $Path to your account (icacls code $LASTEXITCODE)." }
+    Invoke-PrhIcacls $Path @('/reset') 'Could not reset the access list of the file or folder.'
+    Invoke-PrhIcacls $Path @('/inheritance:r', '/grant:r', $grant) 'Could not restrict the file or folder to your account.'
+    $null = Assert-PrhUserOnly $Path
+}
+
+# Same result as Set-PrhUserOnly (inheritance off, one Allow entry: the current user, full control), written with ONE
+# Set-Acl call. For an existing file that already holds keys there is no moment when the old and new lists are mixed or
+# when inheritance is re-applied. The list is read back before returning.
+function Set-PrhUserOnlyAcl([string]$Path, [switch]$Folder) {
+    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
+    if ($Folder) {
+        $acl = New-Object Security.AccessControl.DirectorySecurity
+        $rule = New-Object Security.AccessControl.FileSystemAccessRule($sid, [Security.AccessControl.FileSystemRights]::FullControl, ([Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'), [Security.AccessControl.PropagationFlags]::None, [Security.AccessControl.AccessControlType]::Allow)
+    } else {
+        $acl = New-Object Security.AccessControl.FileSecurity
+        $rule = New-Object Security.AccessControl.FileSystemAccessRule($sid, [Security.AccessControl.FileSystemRights]::FullControl, [Security.AccessControl.AccessControlType]::Allow)
+    }
+    $acl.SetAccessRuleProtection($true, $false)
+    $acl.AddAccessRule($rule)
+    try { Set-Acl -LiteralPath $Path -AclObject $acl -ErrorAction Stop }
+    catch { throw "Could not restrict the file or folder to your account. Make sure it is on an NTFS drive and belongs to your account, then run Setup again. ($($_.Exception.Message))" }
     $null = Assert-PrhUserOnly $Path
 }
 
 # Reads the access list back. Throws unless inheritance is off and the only principals that are allowed access are the
-# current user, SYSTEM and Administrators (the same set the other Brightline installers accept). Deny rules are ignored:
-# they can only narrow access. Returns the list of principals found, for the log.
+# current user (what Setup sets) or, if someone added them, SYSTEM and Administrators (who can read the file anyway).
+# Deny rules are ignored: they can only narrow access. Returns the list of principals found, for the log.
 function Assert-PrhUserOnly([string]$Path) {
     $userSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
     $allowed = @($userSid, 'S-1-5-18', 'S-1-5-32-544')
@@ -165,7 +191,19 @@ function Get-PrhProcesses([string]$Root) {
 
 function Stop-PrhProcesses([string]$Root) {
     $ids = @(Get-PrhProcesses $Root)
-    foreach ($id in $ids) { $null = & taskkill.exe /PID $id /T /F 2>&1 }
+    if (-not $ids.Count) { return 0 }
+    # taskkill writes to stderr for a process that already exited; under $ErrorActionPreference = 'Stop' that is a raw
+    # terminating error. Run it with 'Continue' and judge the result by listing the processes again.
+    $old = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+    try { foreach ($id in $ids) { $null = & taskkill.exe /PID $id /T /F 2>&1 } }
+    finally { $ErrorActionPreference = $old }
+    $left = @()
+    for ($try = 0; $try -lt 10; $try++) {
+        $left = @(Get-PrhProcesses $Root | Where-Object { $_ -in $ids })
+        if (-not $left.Count) { break }
+        Start-Sleep -Milliseconds 300
+    }
+    if ($left.Count) { throw "Could not stop $($left.Count) Hub process(es) from this installation (process IDs: $($left -join ', ')). Quit your AI assistant, then try again." }
     return $ids.Count
 }
 
@@ -203,4 +241,106 @@ function Write-PrhDoctorSummary($Report) {
 # A TOML basic string with backslashes and quotes escaped.
 function ConvertTo-TomlString([string]$Text) {
     return '"' + $Text.Replace('\', '\\').Replace('"', '\"') + '"'
+}
+
+# --- Deleting folders -------------------------------------------------------------------------------------------------
+
+# \\?\ form of a local absolute path: Windows then skips its name rules, so entries such as CON, NUL or a name ending in a
+# dot or space (which PowerShell cannot address by the ordinary path) can still be listed and deleted.
+function ConvertTo-ExtendedPath([string]$Path) {
+    if ($Path.StartsWith('\\?\')) { return $Path }
+    return '\\?\' + [IO.Path]::GetFullPath($Path).TrimEnd('\')
+}
+
+function Remove-Links([string]$Path) {
+    # Walked by hand: Windows PowerShell's -Recurse can follow a junction into its target. .NET with \\?\ paths, because
+    # Get-Item cannot see entries with reserved names.
+    if (-not [IO.Directory]::Exists((ConvertTo-ExtendedPath $Path))) { return }
+    $dir = New-Object IO.DirectoryInfo (ConvertTo-ExtendedPath $Path)
+    foreach ($child in @($dir.EnumerateFileSystemInfos())) {
+        if ($child.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+            if ($child -is [IO.DirectoryInfo]) { [IO.Directory]::Delete($child.FullName, $false) } else { [IO.File]::Delete($child.FullName) }
+        } elseif ($child -is [IO.DirectoryInfo]) { Remove-Links $child.FullName }
+    }
+}
+
+# Removes one file or folder (never following links). Tries Remove-Item first; entries PowerShell cannot remove (reserved
+# device names, trailing dots or spaces, very long paths) are retried with \\?\ paths and finally cmd.exe's rd. Pass only
+# paths inside a folder whose marker file was checked.
+function Remove-Tree([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path)) { return }
+    $item = Get-Item -LiteralPath $Path -Force
+    if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+        # The folder itself is a link: remove the link, never its target.
+        if ($item.PSIsContainer) { [IO.Directory]::Delete($item.FullName, $false) } else { [IO.File]::Delete($item.FullName) }
+        return
+    }
+    # Unlink junctions and symbolic links first, without following them, so a linked folder's target survives.
+    Remove-Links $Path
+    if ($item.PSIsContainer) {
+        try { Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop } catch {}
+        if (Test-Path -LiteralPath $Path) {
+            $ext = ConvertTo-ExtendedPath $Path
+            try { [IO.Directory]::Delete($ext, $true) } catch {}
+            if ((Test-Path -LiteralPath $Path) -and $ext -notmatch '[%"]' -and $ext.Length -gt 12) {
+                $old = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+                try { $null = & cmd.exe /d /c rd /s /q $ext 2>&1 } finally { $ErrorActionPreference = $old }
+            }
+        }
+        if (Test-Path -LiteralPath $Path) {
+            # Long paths (deep node_modules folders): empty the folder with robocopy, then remove it.
+            $empty = Join-Path ([IO.Path]::GetTempPath()) ('prh-empty-' + [Guid]::NewGuid().ToString('N'))
+            New-Item -ItemType Directory -Path $empty | Out-Null
+            $old = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+            try { $null = & robocopy.exe $empty $Path /MIR /XJ /NFL /NDL /NJH /NJS /NP } finally { $ErrorActionPreference = $old }
+            Remove-Item -LiteralPath $empty -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    } else {
+        try { Remove-Item -LiteralPath $Path -Force -ErrorAction Stop } catch { try { [IO.File]::Delete((ConvertTo-ExtendedPath $Path)) } catch {} }
+    }
+    if (Test-Path -LiteralPath $Path) { throw "Could not remove $Path. Close any program using files there and try again." }
+}
+
+# Deletes a folder that Setup created and marked. Everything is removed first; the entries named in $KeepLast (the program
+# folder's installer\ scripts, installer.json and the marker file) go last, in that order, and only if everything else
+# succeeded. A partial failure therefore leaves the marker and the uninstaller in place so the uninstall can be run again.
+function Remove-OwnedTree([string]$Path, [string[]]$KeepLast) {
+    if (-not (Test-Path -LiteralPath $Path)) { return }
+    $failures = New-Object Collections.Generic.List[string]
+    foreach ($entry in @([IO.Directory]::EnumerateFileSystemEntries((ConvertTo-ExtendedPath $Path)))) {
+        $leaf = [IO.Path]::GetFileName($entry.TrimEnd('\'))
+        if ($leaf -in $KeepLast) { continue }
+        try { Remove-Tree $entry } catch { $failures.Add($_.Exception.Message) }
+    }
+    if ($failures.Count) { throw ($failures -join ' ') }
+    foreach ($name in $KeepLast) { Remove-Tree (Join-Path $Path $name) }
+    Remove-Tree $Path
+}
+
+# --- Hub.cmd ----------------------------------------------------------------------------------------------------------
+
+# Command-line wrapper with this installation's folders and keys file. Written as UTF-8 (no BOM) and run under code page
+# 65001, so folders with accented or non-Latin characters work. The caller's code page is restored afterwards (taken from
+# the last word of chcp's output, digits only: some languages print "Active code page: 850." with a final period), and the
+# Hub's exit code is passed on.
+function Get-PrhHubCmdText([string]$NodeExe, $Paths) {
+    return (@(
+        '@echo off',
+        'rem Patent Research Hub command line for this installation. Example: Hub.cmd doctor',
+        'setlocal',
+        'set "PRH_CP="',
+        'for /f "delims=" %%a in (''chcp'') do for %%t in (%%a) do set "PRH_CP=%%t"',
+        'set "PRH_CP=%PRH_CP:.=%"',
+        'echo(%PRH_CP%|findstr /r /x "[0-9][0-9]*" >nul || set "PRH_CP="',
+        'chcp 65001 >nul',
+        ('set "PATENT_RESEARCH_CONFIG=' + $Paths.HubConfig + '"'),
+        ('set "PATENT_RESEARCH_DATA_DIR=' + $Paths.Data + '"'),
+        ('set "PATENT_RESEARCH_EXPORTS_DIR=' + $Paths.Exports + '"'),
+        ('"' + $NodeExe + '" "--env-file-if-exists=' + $Paths.Keys + '" "%~dp0src\cli.mjs" %*'),
+        'set "PRH_EXIT=%ERRORLEVEL%"',
+        'if defined PRH_CP chcp %PRH_CP% >nul',
+        'exit /b %PRH_EXIT%',
+        ''
+    ) -join "`r`n")
 }

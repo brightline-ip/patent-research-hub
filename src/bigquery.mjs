@@ -2,7 +2,7 @@ import {randomUUID} from 'node:crypto';
 import {externalAccess} from './external-access.mjs';
 import {callGateway,readConfig} from './gateway.mjs';
 import {hash} from './parsers.mjs';
-import {exportReport,probeChartRenderer} from './reports.mjs';
+import {exportReport,probeChartRenderer,preflightExport,exportFailure} from './reports.mjs';
 
 export const bigQueryContractVersion=1;
 export const bigQueryPublicationTable='patents-public-data.patents.publications';
@@ -148,5 +148,5 @@ export async function exportBigQueryTrendReport(trend,input={},options={}){
  return {warnings:files.warnings,trend,analysis,files};
 }
 
-// The chart renderer is probed before the provider call, so a missing Python is known (and reported) before any query runs; it never blocks the report.
-export async function queryBigQueryTrendReport(input,options={}){const renderer=(options.probeRenderer||probeChartRenderer)();return exportBigQueryTrendReport(await queryBigQueryTrend(input,options),input,{renderer});}
+// Before the provider call: the chart renderer is probed (a missing Python is reported, never fatal), and the title and export folder are checked, so a paid query is never lost to a report that cannot be written. After it, an export error returns the paid result with an exportError field.
+export async function queryBigQueryTrendReport(input,options={}){const renderer=(options.probeRenderer||probeChartRenderer)();await preflightExport(input);const trend=await (options.query||queryBigQueryTrend)(input,options);try{return await exportBigQueryTrendReport(trend,input,{renderer});}catch(error){return exportFailure(trend,error);}}

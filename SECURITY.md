@@ -60,8 +60,10 @@ send client-confidential material to a provider unless your obligations permit i
   integrity hashes). The optional chart packages come from PyPI, version-pinned in `requirements.txt`, wheels only; they
   are not hash-pinned, so a compromised package index or account could serve different files under a pinned version.
 - Setup never asks for or prints a key. It creates an empty `keys.env` in the data folder and restricts it, and the data
-  folder, to your account before writing anything into them, then reads each access list back and stops if inheritance is
-  still on or any account other than yours, SYSTEM and Administrators can access it. The `Hub.cmd` wrapper, the Check shortcut and the MCP
+  folder, to your account only (no SYSTEM or Administrators entry is added) before writing anything into them, then reads each
+  access list back and stops if inheritance is still on or any account other than yours (SYSTEM and Administrators are
+  tolerated if someone added them) can access it. An existing `keys.env` gets its list set in a single step and read back. An
+  existing data folder is only checked: if it is not private to your account Setup warns and does not change it. The `Hub.cmd` wrapper, the Check shortcut and the MCP
   snippets load it with Node's `--env-file-if-exists`; keys then reach the Hub as environment variables, as before.
   Any program running as your Windows account can read the file. A variable already set in your Windows environment
   takes precedence over `keys.env` (Node's `--env-file` never overrides existing variables).

@@ -52,7 +52,21 @@ export function decodePtabOriginal(envelope,expectedUrl){
   return {bytes,sha256:createHash('sha256').update(bytes).digest('hex')};
 }
 
-export async function stageOriginal(bytes,sha256,intakeRoot,extension='pdf'){
+const TEMPORARY_MAX_AGE_MS=10*60*1000;
+// An interrupted write leaves a ".<hash>.<uuid>.tmp" file behind. Remove the ones older than ten minutes (a younger one may
+// belong to a download that is still being written by another Hub process).
+export async function sweepStagingTemporaries(directory,{now=Date.now()}={}){
+  let names;try{names=await fs.readdir(directory);}catch{return 0;}
+  let removed=0;
+  for(const name of names){
+    if(!/^\..+\.tmp$/.test(name))continue;
+    const file=path.join(directory,name);
+    try{const stat=await fs.lstat(file);if(stat.isFile()&&now-stat.mtimeMs>TEMPORARY_MAX_AGE_MS){await fs.rm(file,{force:true});removed++;}}catch{}
+  }
+  return removed;
+}
+const fileSha256=async file=>createHash('sha256').update(await fs.readFile(file)).digest('hex');
+export async function stageOriginal(bytes,sha256,intakeRoot,extension='pdf',{rename=fs.rename}={}){
   if(!['pdf','docx','tar'].includes(extension))throw new Error('Unsupported original extension');
   if(createHash('sha256').update(bytes).digest('hex')!==sha256)throw new Error('Original integrity mismatch');
   const root=path.resolve(intakeRoot),directory=path.join(root,'patent-research');
@@ -60,6 +74,7 @@ export async function stageOriginal(bytes,sha256,intakeRoot,extension='pdf'){
   if(path.resolve(await fs.realpath(root)).toLowerCase()!==root.toLowerCase())throw new Error('Corpus intake must not resolve through a junction');
   await fs.mkdir(directory,{recursive:true});
   if(path.resolve(await fs.realpath(directory)).toLowerCase()!==directory.toLowerCase())throw new Error('Research intake must not resolve through a junction');
+  await sweepStagingTemporaries(directory);
   const target=path.join(directory,sha256+'.'+extension);
   // An existing file with the right hash is kept. Anything else under this name (damaged, truncated by an interrupted
   // write) is replaced. The new bytes go to a temporary name first and are renamed into place, so the final name never
@@ -68,7 +83,17 @@ export async function stageOriginal(bytes,sha256,intakeRoot,extension='pdf'){
   try{intact=createHash('sha256').update(await fs.readFile(target)).digest('hex')===sha256;}catch(error){if(error.code!=='ENOENT'&&error.code!=='EISDIR')throw error;}
   if(!intact){
     const temporary=path.join(directory,'.'+sha256+'.'+randomUUID()+'.tmp');
-    try{await fs.writeFile(temporary,bytes,{flag:'wx'});await fs.rename(temporary,target);}
+    try{
+      await fs.writeFile(temporary,bytes,{flag:'wx'});
+      try{await rename(temporary,target);}
+      catch(error){
+        // Another process may have staged the same file (or a scanner may hold it) between our check and the rename: if the target is now intact, accept it.
+        if(!['EPERM','EBUSY','EEXIST'].includes(error.code))throw error;
+        let ok=false;try{ok=await fileSha256(target)===sha256;}catch{}
+        if(!ok)throw error;
+        await fs.rm(temporary,{force:true}).catch(()=>{});
+      }
+    }
     catch(error){await fs.rm(temporary,{force:true}).catch(()=>{});throw error;}
   }
   if(path.resolve(await fs.realpath(target)).toLowerCase()!==target.toLowerCase()||createHash('sha256').update(await fs.readFile(target)).digest('hex')!==sha256)throw new Error('Staged original conflicts with the verified PDF');

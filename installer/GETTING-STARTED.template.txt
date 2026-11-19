@@ -80,8 +80,10 @@ Hub.cmd with no arguments lists every command.
 
 5. REPAIR, UPDATE, UNINSTALL
 ----------------------------
-Repair (Start menu) re-runs the npm package install only (it does not replace program files) and
-keeps your data, settings and keys. To update, run Setup.cmd from a newer download: that REPLACES
+Repair (Start menu) reinstalls the npm packages, may offer a missing prerequisite (Node.js, optional
+Python) if you say yes, re-applies the protection on keys.env, and regenerates Hub.cmd, the MCP setup
+files, this guide and the shortcuts. It does not replace program files and does not touch your data,
+settings or key values. To update, run Setup.cmd from a newer download: that REPLACES
 the program folder, so files you saved inside it are deleted; keep your own files in the data
 folder. Uninstall removes the program folder and shortcuts and keeps the data folder unless you
 choose to delete it; its last lines say whether each folder was deleted or kept.

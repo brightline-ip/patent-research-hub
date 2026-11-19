@@ -72,8 +72,9 @@ function Request-Program([string]$Name, [string]$Id, [string[]]$Why, [string]$Ma
     & $winget.Source @(Get-WingetArgs $Id)
     $code = $LASTEXITCODE
     Update-SessionPath
-    # -1978335189 (0x8A15002B): already installed, no applicable upgrade.
-    if ($code -eq 0 -or $code -eq -1978335189) { $script:WingetInstalled += $Name; return 'installed' }
+    # -1978335189 (0x8A15002B): already installed, no applicable upgrade. Nothing was installed then, so it is not recorded as something Setup installed.
+    if ($code -eq -1978335189) { return 'installed' }
+    if ($code -eq 0) { $script:WingetInstalled += $Name; return 'installed' }
     Write-Bad "winget reported an error ($code) while installing $Name."
     return 'failed'
 }
@@ -285,7 +286,7 @@ try {
     if (-not $hadData) {
         New-Item -ItemType Directory -Force -Path $DataRoot | Out-Null
         Set-PrhUserOnly $DataRoot -Folder
-        Write-Good 'Data folder created (access list read back: inheritance off, no account other than yours, SYSTEM and Administrators)'
+        Write-Good 'Data folder created (access list read back: inheritance off, only your account has access)'
         Write-Utf8NoBom $paths.DataMarker "Patent Research Hub data folder (database, exports, settings, keys). The uninstaller deletes it only if you ask.`r`n"
     } else {
         try { $null = Assert-PrhUserOnly $DataRoot }
@@ -324,30 +325,12 @@ try {
         [IO.File]::WriteAllText($paths.Keys, $text, (New-Object Text.UTF8Encoding $false))
         Write-Good 'Keys file created, readable only by your account (empty: no keys are set)'
     } else {
-        Set-PrhUserOnly $paths.Keys
-        Write-Good 'Existing keys file kept (access list re-applied and read back: inheritance off, no account other than yours, SYSTEM and Administrators)'
+        Set-PrhUserOnlyAcl $paths.Keys
+        Write-Good 'Existing keys file kept (access list set in one step and read back: inheritance off, only your account has access)'
     }
 
-    # Command-line wrapper with this installation's folders and keys file.
-    # Written as UTF-8 (no BOM) and run under code page 65001, so folders with accented or non-Latin characters work.
-    # The caller's code page is restored afterwards, and the Hub's exit code is passed on.
-    $cmd = @(
-        '@echo off',
-        'rem Patent Research Hub command line for this installation. Example: Hub.cmd doctor',
-        'setlocal',
-        'set "PRH_CP="',
-        'for /f "tokens=2 delims=:" %%a in (''chcp'') do set "PRH_CP=%%a"',
-        'chcp 65001 >nul',
-        ('set "PATENT_RESEARCH_CONFIG=' + $paths.HubConfig + '"'),
-        ('set "PATENT_RESEARCH_DATA_DIR=' + $paths.Data + '"'),
-        ('set "PATENT_RESEARCH_EXPORTS_DIR=' + $paths.Exports + '"'),
-        ('"' + $node.Exe + '" "--env-file-if-exists=' + $paths.Keys + '" "%~dp0src\cli.mjs" %*'),
-        'set "PRH_EXIT=%ERRORLEVEL%"',
-        'if defined PRH_CP chcp %PRH_CP% >nul',
-        'exit /b %PRH_EXIT%',
-        ''
-    ) -join "`r`n"
-    Write-Utf8NoBom $paths.HubCmd $cmd
+    # Command-line wrapper (see Get-PrhHubCmdText in common.ps1).
+    Write-Utf8NoBom $paths.HubCmd (Get-PrhHubCmdText $node.Exe $paths)
 
     # MCP setup snippets. Keys stay in keys.env; the snippets hold only paths.
     $envBlock = [ordered]@{ PATENT_RESEARCH_CONFIG = $paths.HubConfig; PATENT_RESEARCH_DATA_DIR = $paths.Data; PATENT_RESEARCH_EXPORTS_DIR = $paths.Exports }
@@ -381,7 +364,7 @@ try {
         (New-PrhShortcut 'Patent Research Hub - Check' $PowerShellExe (Get-PsArgs 'check.ps1') 'Show which sources are ready (names only, never key values)' 'shell32.dll,23'),
         (New-PrhShortcut 'Patent Research Hub - Data folder' (Join-Path $env:SystemRoot 'explorer.exe') ('"' + $DataRoot + '"') 'Open your research data, settings and keys file' 'shell32.dll,3'),
         (New-PrhShortcut 'Patent Research Hub - Documentation' (Join-Path $env:SystemRoot 'System32\notepad.exe') ('"' + $paths.Guide + '"') 'Getting started: where keys go, MCP setup, documentation' 'shell32.dll,1'),
-        (New-PrhShortcut 'Patent Research Hub - Repair' $PowerShellExe (Get-PsArgs 'setup.ps1' '-Repair') 'Re-runs the Node.js package install only (program files are not replaced); keeps data, settings and keys' 'shell32.dll,238'),
+        (New-PrhShortcut 'Patent Research Hub - Repair' $PowerShellExe (Get-PsArgs 'setup.ps1' '-Repair') 'Reinstalls the Node.js packages, re-applies key file protection and rewrites Hub.cmd, MCP files, guide and shortcuts; program files, data and keys are not replaced' 'shell32.dll,238'),
         (New-PrhShortcut 'Patent Research Hub - Uninstall' $PowerShellExe (Get-PsArgs 'remove.ps1') 'Remove Patent Research Hub' 'shell32.dll,31')
     )
     Write-Good "Shortcuts created in $ShortcutFolder"

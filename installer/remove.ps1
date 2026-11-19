@@ -18,41 +18,6 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')).TrimEnd('\')
 
-function Remove-Links([string]$Path) {
-    # Walked by hand: Windows PowerShell's -Recurse can follow a junction into its target.
-    $item = Get-Item -LiteralPath $Path -Force
-    if (-not $item.PSIsContainer) { return }
-    foreach ($child in @(Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue)) {
-        if ($child.Attributes -band [IO.FileAttributes]::ReparsePoint) {
-            if ($child.PSIsContainer) { [IO.Directory]::Delete($child.FullName, $false) } else { [IO.File]::Delete($child.FullName) }
-        } elseif ($child.PSIsContainer) { Remove-Links $child.FullName }
-    }
-}
-
-function Remove-Tree([string]$Path) {
-    if (-not (Test-Path -LiteralPath $Path)) { return }
-    $item = Get-Item -LiteralPath $Path -Force
-    if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
-        # The folder itself is a link: remove the link, never its target.
-        if ($item.PSIsContainer) { [IO.Directory]::Delete($item.FullName, $false) } else { [IO.File]::Delete($item.FullName) }
-        return
-    }
-    # Unlink junctions and symbolic links first, without following them, so a linked folder's target survives.
-    Remove-Links $Path
-    if ($item.PSIsContainer) {
-        try { Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop } catch {}
-        if (Test-Path -LiteralPath $Path) {
-            # Long paths (deep node_modules folders): empty the folder with robocopy, then remove it.
-            $empty = Join-Path ([IO.Path]::GetTempPath()) ('prh-empty-' + [Guid]::NewGuid().ToString('N'))
-            New-Item -ItemType Directory -Path $empty | Out-Null
-            $null = & robocopy.exe $empty $Path /MIR /XJ /NFL /NDL /NJH /NJS /NP
-            Remove-Item -LiteralPath $empty -Force -ErrorAction SilentlyContinue
-            Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction SilentlyContinue
-        }
-    } else { Remove-Item -LiteralPath $Path -Force }
-    if (Test-Path -LiteralPath $Path) { throw "Could not remove $Path. Close any program using files there and try again." }
-}
-
 function Test-SafeTarget([string]$Path) {
     $p = $Path.TrimEnd('\')
     if ($p -eq ([IO.Path]::GetPathRoot($p)).TrimEnd('\')) { return $false }
@@ -77,6 +42,7 @@ try {
     Write-Info "Program folder: $root"
     if ($dataRoot) { Write-Info "Data folder:    $dataRoot" }
     Write-Info 'Node.js and Python stay installed. AI assistant settings you changed are not edited.'
+    Write-Info 'Any Hub processes running from this program folder (for example one your AI assistant started) will be stopped first.'
     if ($RemoveData -and -not $dataOwned) { Write-Warn2 'The data folder was not created by Setup (or is missing), so it will not be deleted.'; $RemoveData = $false; $KeepData = $true }
     if (-not ($RemoveData -or $KeepData)) {
         if ($dataOwned) {
@@ -86,7 +52,7 @@ try {
             if (Read-YesNo 'Permanently DELETE the data folder as well?' $false) { $RemoveData = $true } else { $KeepData = $true }
         } else { $KeepData = $true }
     }
-    if (-not $Yes -and -not (Read-YesNo 'Remove Patent Research Hub now?' $false)) { Write-Info 'Nothing was changed.'; if (-not $Yes) { Read-Host 'Press Enter to close' | Out-Null }; exit 0 }
+    if (-not $Yes -and -not (Read-YesNo 'Remove Patent Research Hub now? Running Hub processes from this installation will be stopped.' $false)) { Write-Info 'Nothing was changed.'; if (-not $Yes) { Read-Host 'Press Enter to close' | Out-Null }; exit 0 }
 
     # The shortcut may have started this process inside the program folder. Windows will not delete a folder that is
     # a process's current directory, and Set-Location only changes PowerShell's own location, not the process's.
@@ -108,10 +74,11 @@ try {
     # The two deletions are independent: a program folder that cannot be removed never silently skips the data
     # deletion you asked for, and each outcome is reported on its own.
     $programGone = $false; $programError = $null
-    try { Remove-Tree $root; $programGone = $true } catch { $programError = $_.Exception.Message }
+    # Everything but the uninstaller scripts, installer.json and the marker file goes first; those go last, so a partial failure can be run again.
+    try { Remove-OwnedTree $root @('installer', 'installer.json', $script:PrhMarker); $programGone = $true } catch { $programError = $_.Exception.Message }
     $dataGone = $false; $dataError = $null
     if ($RemoveData) {
-        try { Remove-Tree $dataRoot; $dataGone = $true } catch { $dataError = $_.Exception.Message }
+        try { Remove-OwnedTree $dataRoot @($script:PrhDataMarker); $dataGone = $true } catch { $dataError = $_.Exception.Message }
     }
     Write-Host ''
     if ($programGone) { Write-Good "Program folder DELETED: $root" } else { Write-Bad "Program folder NOT deleted (still present): $root"; Write-Info "    $programError" }
@@ -121,8 +88,9 @@ try {
         Write-Good "Data folder KEPT (not deleted): $dataRoot"
     }
     if (-not $programGone -or ($RemoveData -and -not $dataGone)) {
-        Write-Info 'Close any program using files in the folders named above, then run the uninstaller again'
-        Write-Info '(or delete the folders yourself in File Explorer).'
+        Write-Info 'To finish: close any program using files in the folder(s) named above as NOT deleted, then delete'
+        Write-Info 'that folder in File Explorer. (If the Uninstall shortcut still works you can run it again instead;'
+        Write-Info 'the marker file and the installer folder are removed last, so a partial removal can be repeated.)'
         $exit = 1
     }
     if ($programGone -and $config -and $config.created_parent) {

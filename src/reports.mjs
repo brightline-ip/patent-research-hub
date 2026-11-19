@@ -3,6 +3,8 @@ import {spawnSync} from 'node:child_process';
 import path from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {exportsDir,installRoot as root,pythonExecutable,readConfig} from './config.mjs';
+import {safeErrorMessage} from './security.mjs';
+import {analyzeCpc} from './analysis.mjs';
 const escape=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const markdownLine=s=>String(s??'').replace(/[\r\n\t]+/g,' ').replace(/\s+/g,' ').trim().replace(/([\\`*_[\]()<>#|])/g,'\\$1');
 const markdownLink=value=>{try{const u=new URL(String(value));if(u.protocol!=='https:'||u.username||u.password||u.href.length>4096)throw new Error();return '<'+u.href.replaceAll('>','%3E')+'>';}catch{return markdownLine(value);}};
@@ -18,6 +20,25 @@ export function probeChartRenderer({config,env=process.env}={}){
   const probe=spawnSync(python,['-c','import matplotlib'],{encoding:'utf8',windowsHide:true,timeout:30000,env:pythonChildEnv(env)});
   if(probe.error||probe.status!==0){const reason=`matplotlib is not available to the Python interpreter ${python}`;return {available:false,python,reason,warning:chartWarning(reason)};}
   return {available:true,python,reason:null,warning:null};
+}
+// Validate the title and prove the export folder is writable BEFORE anything billable happens, so a paid query is never
+// run only to find that its report cannot be written.
+export async function preflightExport({title}={}){
+  if(title!==undefined&&title!==null&&(typeof title!=='string'||!title.trim()||title.length>200))throw new Error('Report title must be 1 to 200 characters. Nothing was queried.');
+  const root=exportsDir(readConfig());
+  try{await fs.mkdir(root,{recursive:true});const probe=path.join(root,'.write-test-'+randomUUID());await fs.writeFile(probe,'ok',{flag:'wx'});await fs.rm(probe,{force:true});}
+  catch(error){throw new Error(`The export folder ${root} is not writable (${safeErrorMessage(error.message)}). Nothing was queried, so nothing was billed.`);}
+  return root;
+}
+// The query already ran (and may have been billed): an export failure must not discard its result.
+export function exportFailure(trend,error){
+  const exportError=safeErrorMessage(error?.message||String(error));
+  return {warnings:[`The query completed, but the report files could not be written: ${exportError}. The result is returned here and was not saved as a report.`,...(trend.warnings||[])],exportError,trend,files:null};
+}
+export async function exportCpcReport(a){
+  const analysis=analyzeCpc(a.dataset,a);
+  const files=await exportReport({title:a.title||analysis.title,analysis,dataset:a.dataset});
+  return {warnings:files.warnings,analysis,files};
 }
 export async function exportReport(input){
   const {title,analysis=null}=input;

@@ -4,6 +4,7 @@ import path from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {hash} from './parsers.mjs';
 import {stageVerifiedRestore} from './backups.mjs';
+import {assertNotReservedName} from './names.mjs';
 import {assertNoSensitiveText} from './security.mjs';
 export class Store{
   constructor(root){mkdirSync(root,{recursive:true});this.root=root;this.file=path.join(root,'research.sqlite');this.db=new DatabaseSync(this.file,{timeout:5000});this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;
@@ -69,7 +70,7 @@ export class Store{
     const manifest=path.join(directory,id+'.manifest.json'),body={format:'patent-research-state-backup',version:1,createdAt,database:path.basename(database),bytes,sha256,sqliteIntegrity:'ok',counts,contents:'Public research metadata, source snapshots, handoffs, usage ledger and validated aggregate caches. n8n credentials and provider datasets are not included.'};writeFileSync(manifest,JSON.stringify(body,null,2));
     return {...body,manifest};
   }
-  stageRestore(manifestName){if(typeof manifestName!=='string'||!/^[A-Za-z0-9._-]+\.manifest\.json$/.test(manifestName))throw new Error('Use a backup manifest filename from data/backups');return stageVerifiedRestore(path.join(this.root,'backups',manifestName),{backupRoot:path.join(this.root,'backups'),recoveryRoot:path.join(this.root,'recovery')});}
+  stageRestore(manifestName){if(typeof manifestName!=='string'||!/^[A-Za-z0-9._-]+\.manifest\.json$/.test(manifestName))throw new Error('Use a backup manifest filename from data/backups');assertNotReservedName(manifestName,'backup manifest name');return stageVerifiedRestore(path.join(this.root,'backups',manifestName),{backupRoot:path.join(this.root,'backups'),recoveryRoot:path.join(this.root,'recovery')});}
   stats(){return this.db.prepare('SELECT source,count(*) AS records FROM records GROUP BY source').all();}
   lastRuns(){return this.db.prepare('SELECT body FROM runs ORDER BY created DESC LIMIT 25').all().map(r=>JSON.parse(r.body));}
   lastSourceRun(source,transport){const row=this.db.prepare("SELECT body FROM runs WHERE source=? AND json_extract(body,'$.coverage.transport')=? ORDER BY created DESC LIMIT 1").get(source,transport);return row?JSON.parse(row.body):null;}

@@ -1,7 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import {callGateway, readConfig} from './gateway.mjs';
 import {hash} from './parsers.mjs';
-import {exportReport, probeChartRenderer} from './reports.mjs';
+import {exportReport, probeChartRenderer, preflightExport, exportFailure} from './reports.mjs';
 
 export const examinerTable = 'patents-public-data.uspto_oce_pair.application_data';
 export const examinerSourceUrl = 'https://www.uspto.gov/ip-policy/economic-research/research-datasets/patent-examination-research-dataset-public-pair';
@@ -350,5 +350,7 @@ export async function exportExaminerReport(trend, input = {}, options = {}) {
 export async function queryExaminerReport(input, options = {}) {
   // Probe the chart renderer before the provider call: a missing Python is reported, never fatal, and never found out after a paid query.
   const renderer = (options.probeRenderer || probeChartRenderer)();
-  return exportExaminerReport(await queryExaminerTrend(input, options), input, {renderer});
+  await preflightExport(input);
+  const trend = await (options.query || queryExaminerTrend)(input, options);
+  try { return await exportExaminerReport(trend, input, {renderer}); } catch (error) { return exportFailure(trend, error); }
 }

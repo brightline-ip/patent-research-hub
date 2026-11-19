@@ -39,7 +39,7 @@ command line or an assistant can do today.
 
 Every retrieval is saved as an immutable response snapshot plus normalized records in a local SQLite database, so
 earlier results stay searchable offline. Reports are exported as JSON, Markdown and HTML (with CSV for statistics, and
-a chart when Python is available; without Python the report is still written, with a warning and no chart).
+a chart only when Python with matplotlib is available; without them the report is still written, with a warning and no chart). Report tools put warnings first in their result; if writing the files fails after a paid BigQuery query, the result is still returned with an xportError field.
 
 ## Requirements
 
@@ -71,7 +71,10 @@ Start Menu, folder **Patent Research Hub**:
 - **Check**: which sources are ready (setting names only, never key values; no network call).
 - **Data folder**: opens the data folder, where `keys.env` and `config.json` are.
 - **Documentation**: the getting-started guide (where keys go, how to connect an assistant).
-- **Repair**: re-runs the npm package install only (it does not replace program files); keeps your data, settings and keys.
+- **Repair**: reinstalls the npm packages, may offer any missing prerequisite (Node.js, optional Python) with your yes,
+  re-applies the protection on `keys.env`, and regenerates `Hub.cmd`, the MCP setup files, the getting-started guide
+  and the shortcuts. It does not replace program files (run `Setup.cmd` from a newer download for that) and does not
+  touch your data, settings or key values.
 - **Uninstall**: removes the program and shortcuts; keeps the data folder unless you choose to delete it. It ends by
   saying whether the program folder and the data folder were deleted or kept.
 
