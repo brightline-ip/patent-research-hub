@@ -24,7 +24,7 @@ function fakeInstall(name){
   fs.writeFileSync(path.join(data,'.patent-research-hub-data'),'marker');fs.writeFileSync(path.join(data,'keys.env'),'');
   const lnk=path.join(shortcuts,'Patent Research Hub - Uninstall.lnk');fs.writeFileSync(lnk,'x');
   fs.writeFileSync(path.join(app,'installer.json'),JSON.stringify({version:'0.1.0',data_root:data,shortcut_folder:shortcuts,shortcuts:[lnk],node:process.execPath,created_parent:false}));
-  return {base,app,data,shortcuts};
+  return {base,app,data,shortcuts,lnk};
 }
 
 test('Uninstall started inside the program folder (as the Start Menu shortcut did) deletes both folders',{skip},()=>{
@@ -58,7 +58,8 @@ test('A program folder that cannot be deleted does not stop the data deletion, a
     // The marker, installer.json and the installer folder go last, so the removal can be run again; the advice names File Explorer.
     assert.ok(fs.existsSync(path.join(f.app,'.patent-research-hub-install')),'marker file must survive a partial failure');assert.ok(fs.existsSync(path.join(f.app,'installer','remove.ps1')));assert.ok(fs.existsSync(path.join(f.app,'installer.json')));
     assert.ok(!fs.existsSync(path.join(f.app,'node_modules')),'ordinary content is removed first');
-    assert.match(r.stdout,/delete\s+that folder in File Explorer/);
+    assert.match(r.stdout,/delete\s+that folder in File Explorer/);assert.match(r.stdout,/installer\\remove\.ps1/);
+    assert.ok(fs.existsSync(f.lnk),'the Uninstall shortcut is kept while the program folder is still there');
   }finally{holder.kill();await new Promise(r=>holder.once('exit',r));}
 });
 
@@ -124,7 +125,7 @@ test('Uninstall deletes both folders even when they hold reserved device names (
   assert.match(r.stdout,/Program folder DELETED/);assert.match(r.stdout,/Data folder DELETED/);
 });
 
-test('Remove-Tree falls back to \\\\?\\ paths and cmd rd, never follows a junction, and refuses nothing it cannot remove silently',{skip},()=>{
+test('Remove-Tree falls back to \\\\?\\ paths, never follows a junction, and fails loudly instead of leaving a folder',{skip},()=>{
   const base=path.join(scratch,'tree'),outside=path.join(scratch,'tree-outside');
   fs.mkdirSync(path.join(base,'inner'),{recursive:true});fs.mkdirSync(outside,{recursive:true});fs.writeFileSync(path.join(outside,'keep.txt'),'keep');
   makeReserved(path.join(base,'inner'));fs.symlinkSync(outside,path.join(base,'inner','link'),'junction');
@@ -237,5 +238,78 @@ test('winget "already installed" is not recorded as something Setup installed, a
   assert.match(setup,/if \(\$code -eq -1978335189\) \{ return 'installed' \}\r?\n\s+if \(\$code -eq 0\) \{ \$script:WingetInstalled \+= \$Name; return 'installed' \}/);
   const remove=fs.readFileSync(path.join(repo,'installer','remove.ps1'),'utf8');
   assert.match(remove,/Read-YesNo 'Remove Patent Research Hub now\? Running Hub processes from this installation will be stopped\.'/);
-  assert.match(setup,/Reinstalls the Node\.js packages, re-applies key file protection and rewrites Hub\.cmd/);
+  assert.match(setup,/Reinstalls the Node\.js packages, re-applies key file protection, refreshes the optional chart packages if installed, and rewrites Hub\.cmd/);
+});
+// ---- third review round ---------------------------------------------------------------------------------------------------
+test('paths with , ; = & ^ in a space-free path: a locked file never makes the removal touch a sibling folder (no command shell is used)',{skip},async()=>{
+  const common=path.join(repo,'installer','common.ps1');
+  for(const odd of ['a,b','R&D','x;y','k=v','h^t']){
+    const base=path.join(scratch,'odd-'+odd.replace(/\W/g,'_')),sibling=path.join(base,odd.split(/[,&;=^]/)[0]),target=path.join(base,odd,'x');
+    fs.mkdirSync(sibling,{recursive:true});fs.writeFileSync(path.join(sibling,'precious.txt'),'keep');fs.mkdirSync(path.join(target,'deeper'),{recursive:true});
+    makeReserved(target);fs.writeFileSync(path.join(target,'file.txt'),'x');
+    const holder=spawn(process.execPath,['-e','setTimeout(()=>{},60000)'],{cwd:path.join(target,'deeper'),stdio:'ignore',windowsHide:true});
+    try{
+      await new Promise(r=>setTimeout(r,400));
+      const r=run(['-Command',`. '${common}'\n$ErrorActionPreference = 'Stop'\ntry { Remove-Tree '${target}'; 'REMOVED' } catch { 'FAILED' }`]);
+      assert.match(r.stdout,/FAILED/,odd+' '+r.stdout+r.stderr);// the folder is held open, so the removal fails...
+      assert.ok(fs.existsSync(path.join(sibling,'precious.txt')),`${odd}: the sibling folder must survive`);// ...and deletes nothing outside the target
+    }finally{holder.kill();await new Promise(r=>holder.once('exit',r));}
+    const ok=run(['-Command',`. '${common}'\nRemove-Tree '${target}'; 'REMOVED=' + (-not (Test-Path -LiteralPath '${target}'))`]);
+    assert.match(ok.stdout,/REMOVED=True/,odd+' '+ok.stdout+ok.stderr);assert.ok(fs.existsSync(path.join(sibling,'precious.txt')));
+  }
+  assert.doesNotMatch(fs.readFileSync(common,'utf8'),/cmd\.exe/i);
+});
+
+test('Setup refuses , ; = & ^ (as well as " % !) in the program, data and shortcut folders',{skip},()=>{
+  const bundle=stageDownload('dl-chars');
+  for(const bad of ['a,b','R&D','x;y','k=v','h^t']){
+    const odd=path.join(scratch,'chars-'+bad);
+    for(const args of [['-InstallRoot',odd,'-DataRoot',path.join(scratch,'cd1')],['-InstallRoot',path.join(scratch,'ci1'),'-DataRoot',odd],['-InstallRoot',path.join(scratch,'ci2'),'-DataRoot',path.join(scratch,'cd2'),'-ShortcutFolder',odd]]){
+      const r=run(['-File',path.join(bundle,'installer','setup.ps1'),'-DryRun','-NoOptional','-NoOpen',...args]);
+      assert.equal(r.status,1,bad+' '+r.stdout+r.stderr);assert.match(r.stdout,/cannot contain/);
+    }
+  }
+  assert.ok(!fs.existsSync(path.join(scratch,'ci1')));
+});
+
+test('a program or data folder that is itself a junction is unlinked and its target is left exactly as it is',{skip},()=>{
+  const f=fakeInstall('linkroot'),real=path.join(f.base,'real-app'),realData=path.join(f.base,'real-data'),linkApp=path.join(f.base,'link-app'),linkData=path.join(f.base,'link-data');
+  fs.renameSync(f.app,real);fs.renameSync(f.data,realData);
+  fs.symlinkSync(real,linkApp,'junction');fs.symlinkSync(realData,linkData,'junction');
+  fs.writeFileSync(path.join(real,'installer.json'),JSON.stringify({version:'0.1.0',data_root:linkData,shortcut_folder:f.shortcuts,shortcuts:[f.lnk],node:process.execPath,created_parent:false}));
+  const r=run(['-File',path.join(linkApp,'installer','remove.ps1'),'-RemoveData','-Yes'],{cwd:os.tmpdir()});
+  assert.equal(r.status,0,r.stdout+r.stderr);
+  assert.ok(!fs.existsSync(linkApp)&&!fs.existsSync(linkData),'both links removed');
+  assert.ok(fs.existsSync(path.join(real,'.patent-research-hub-install'))&&fs.existsSync(path.join(real,'node_modules','x','a.js'))&&fs.existsSync(path.join(real,'installer','remove.ps1')),'program target untouched');
+  assert.ok(fs.existsSync(path.join(realData,'keys.env'))&&fs.existsSync(path.join(realData,'.patent-research-hub-data')),'data target untouched');
+  assert.match(r.stdout,/Program folder was a link; the link was removed, its target was left as is/);assert.match(r.stdout,/Data folder was a link; the link was removed, its target was left as is/);
+  assert.doesNotMatch(r.stdout,/Program folder DELETED|Data folder DELETED/);
+});
+
+test('Set-PrhUserOnlyAcl also works under PowerShell 7 on an already protected file',{skip:skip||(spawnSync('pwsh.exe',['-NoProfile','-Command','1'],{encoding:'utf8'}).status===0?false:'PowerShell 7 (pwsh) is not installed here')},()=>{
+  const file=path.join(scratch,'acl-core.env'),folder=path.join(scratch,'acl-core-dir');fs.writeFileSync(file,'KEY=x');fs.mkdirSync(folder,{recursive:true});
+  const script=`. '${path.join(repo,'installer','common.ps1')}'
+foreach ($i in 1..2) {
+  $null = & icacls.exe '${file}' /grant '*S-1-5-32-545:R'; $null = & icacls.exe '${folder}' /grant '*S-1-5-32-545:(OI)(CI)R'
+  Set-PrhUserOnlyAcl '${file}'; Set-PrhUserOnlyAcl '${folder}' -Folder
+}
+$me = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+foreach ($p in @('${file}', '${folder}')) { $acl = Get-Acl -LiteralPath $p; 'ACL protected=' + $acl.AreAccessRulesProtected + ' entries=' + (@($acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]) | ForEach-Object { $_.IdentityReference.Value }) -join ',') + ' me=' + $me }
+'PSEDITION=' + $PSVersionTable.PSEdition`;
+  const r=spawnSync('pwsh.exe',['-NoProfile','-Command',script],{encoding:'utf8',windowsHide:true,timeout:120000});
+  assert.equal(r.status,0,r.stdout+r.stderr);assert.match(r.stdout,/PSEDITION=Core/);
+  const me=/me=(S-[\d-]+)/.exec(r.stdout)[1];assert.equal((r.stdout.match(new RegExp(`protected=True entries=${me} me=${me}`,'g'))||[]).length,2,r.stdout);
+});
+
+test('no tracked text file contains control characters other than tab, CR and LF (a PowerShell backtick escape that slipped in)',()=>{
+  const bad=[];
+  const walk=dir=>{for(const e of fs.readdirSync(dir,{withFileTypes:true})){
+    if(['node_modules','.git','_dist','.venv'].includes(e.name))continue;
+    const p=path.join(dir,e.name);
+    if(e.isDirectory()){walk(p);continue;}
+    if(/\.(zip|png|ico|jpg|pdf|sqlite|gz|tar)$/i.test(e.name))continue;
+    const b=fs.readFileSync(p);if(b.includes(0))continue;
+    for(let i=0;i<b.length;i++){const c=b[i];if(c<32&&c!==9&&c!==10&&c!==13){bad.push(`${path.relative(repo,p)} offset ${i} byte 0x${c.toString(16)}`);break;}}
+  }};
+  walk(repo);assert.deepEqual(bad,[]);
 });

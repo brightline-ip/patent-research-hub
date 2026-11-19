@@ -99,9 +99,12 @@ function Set-PrhUserOnly([string]$Path, [switch]$Folder) {
 function Set-PrhUserOnlyAcl([string]$Path, [switch]$Folder) {
     $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
     $access = [Security.AccessControl.AccessControlSections]::Access
+    # Windows PowerShell (.NET Framework) has static File/Directory methods; PowerShell 7 (.NET) has them as FileSystemAclExtensions.
     $legacy = [bool][IO.File].GetMethod('GetAccessControl', [Type[]]@([string], [Security.AccessControl.AccessControlSections]))
     try {
-        $acl = if (-not $legacy) { Get-Acl -LiteralPath $Path } elseif ($Folder) { [IO.Directory]::GetAccessControl($Path, $access) } else { [IO.File]::GetAccessControl($Path, $access) }
+        $acl = if ($legacy) { if ($Folder) { [IO.Directory]::GetAccessControl($Path, $access) } else { [IO.File]::GetAccessControl($Path, $access) } }
+               elseif ($Folder) { [IO.FileSystemAclExtensions]::GetAccessControl((New-Object IO.DirectoryInfo $Path), $access) }
+               else { [IO.FileSystemAclExtensions]::GetAccessControl((New-Object IO.FileInfo $Path), $access) }
         foreach ($existing in @($acl.GetAccessRules($true, $false, [Security.Principal.SecurityIdentifier]))) { $null = $acl.RemoveAccessRuleSpecific($existing) }
         $acl.SetAccessRuleProtection($true, $false)
         $rule = if ($Folder) {
@@ -110,12 +113,13 @@ function Set-PrhUserOnlyAcl([string]$Path, [switch]$Folder) {
             New-Object Security.AccessControl.FileSystemAccessRule($sid, [Security.AccessControl.FileSystemRights]::FullControl, [Security.AccessControl.AccessControlType]::Allow)
         }
         $acl.AddAccessRule($rule)
-        if (-not $legacy) { Set-Acl -LiteralPath $Path -AclObject $acl -ErrorAction Stop }
-        elseif ($Folder) { [IO.Directory]::SetAccessControl($Path, $acl) }
-        else { [IO.File]::SetAccessControl($Path, $acl) }
+        if ($legacy) { if ($Folder) { [IO.Directory]::SetAccessControl($Path, $acl) } else { [IO.File]::SetAccessControl($Path, $acl) } }
+        elseif ($Folder) { [IO.FileSystemAclExtensions]::SetAccessControl((New-Object IO.DirectoryInfo $Path), $acl) }
+        else { [IO.FileSystemAclExtensions]::SetAccessControl((New-Object IO.FileInfo $Path), $acl) }
     } catch { throw "Could not restrict the file or folder to your account. Make sure it is on an NTFS drive and belongs to your account, then run Setup again. ($($_.Exception.Message))" }
     $null = Assert-PrhUserOnly $Path
 }
+
 # Reads the access list back. Throws unless inheritance is off and the only principals that are allowed access are the
 # current user (what Setup sets) or, if someone added them, SYSTEM and Administrators (who can read the file anyway).
 # Deny rules are ignored: they can only narrow access. Returns the list of principals found, for the log.
@@ -270,7 +274,7 @@ function Remove-Links([string]$Path) {
 }
 
 # Removes one file or folder (never following links). Tries Remove-Item first; entries PowerShell cannot remove (reserved
-# device names, trailing dots or spaces, very long paths) are retried with \\?\ paths and finally cmd.exe's rd. Pass only
+# device names, trailing dots or spaces, very long paths) are retried with \\?\ paths (.NET deletes CON, PRN and trailing-dot names that way) and robocopy. No command shell is\n# used, so no character in a path can be reinterpreted. Pass only
 # paths inside a folder whose marker file was checked.
 function Remove-Tree([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path)) { return }
@@ -287,10 +291,6 @@ function Remove-Tree([string]$Path) {
         if (Test-Path -LiteralPath $Path) {
             $ext = ConvertTo-ExtendedPath $Path
             try { [IO.Directory]::Delete($ext, $true) } catch {}
-            if ((Test-Path -LiteralPath $Path) -and $ext -notmatch '[%"]' -and $ext.Length -gt 12) {
-                $old = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
-                try { $null = & cmd.exe /d /c rd /s /q $ext 2>&1 } finally { $ErrorActionPreference = $old }
-            }
         }
         if (Test-Path -LiteralPath $Path) {
             # Long paths (deep node_modules folders): empty the folder with robocopy, then remove it.
@@ -310,8 +310,16 @@ function Remove-Tree([string]$Path) {
 # Deletes a folder that Setup created and marked. Everything is removed first; the entries named in $KeepLast (the program
 # folder's installer\ scripts, installer.json and the marker file) go last, in that order, and only if everything else
 # succeeded. A partial failure therefore leaves the marker and the uninstaller in place so the uninstall can be run again.
+# Returns $true when $Path itself was a link (junction or symbolic link): only the link is removed and its target is left
+# exactly as it is. Otherwise returns $false.
 function Remove-OwnedTree([string]$Path, [string[]]$KeepLast) {
-    if (-not (Test-Path -LiteralPath $Path)) { return }
+    if (-not (Test-Path -LiteralPath $Path)) { return $false }
+    $self = Get-Item -LiteralPath $Path -Force
+    if ($self.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+        if ($self.PSIsContainer) { [IO.Directory]::Delete($self.FullName, $false) } else { [IO.File]::Delete($self.FullName) }
+        if (Test-Path -LiteralPath $Path) { throw "Could not remove the link $Path." }
+        return $true
+    }
     $failures = New-Object Collections.Generic.List[string]
     foreach ($entry in @([IO.Directory]::EnumerateFileSystemEntries((ConvertTo-ExtendedPath $Path)))) {
         $leaf = [IO.Path]::GetFileName($entry.TrimEnd('\'))
@@ -321,6 +329,7 @@ function Remove-OwnedTree([string]$Path, [string[]]$KeepLast) {
     if ($failures.Count) { throw ($failures -join ' ') }
     foreach ($name in $KeepLast) { Remove-Tree (Join-Path $Path $name) }
     Remove-Tree $Path
+    return $false
 }
 
 # --- Hub.cmd ----------------------------------------------------------------------------------------------------------

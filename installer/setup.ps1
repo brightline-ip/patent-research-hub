@@ -80,7 +80,7 @@ function Request-Program([string]$Name, [string]$Id, [string[]]$Why, [string]$Ma
 }
 
 function Test-PrhFolder([string]$Path, [string]$Label, [int]$MaxLength) {
-    if ($Path.IndexOfAny([char[]]'"%!') -ge 0) { throw "The $Label path cannot contain "", % or !. Choose another folder." }
+    if ($Path.IndexOfAny([char[]]'"%!&,;=^') -ge 0) { throw "The $Label path cannot contain any of these characters: "" % ! & , ; = ^ . Choose another folder." }
     if ($Path.Length -gt $MaxLength) { throw "The $Label path is too long (at most $MaxLength characters, so the files inside stay under the Windows path limit). Choose a shorter folder." }
     $drive = [IO.Path]::GetPathRoot($Path)
     if (-not $drive -or $drive.StartsWith('\\')) { throw "The $Label must be on a local drive, not a network path." }
@@ -141,7 +141,7 @@ try {
     # node_modules paths under the program folder reach about 120 characters; the Windows limit is 260.
     $info = Test-PrhFolder $InstallRoot 'program folder' 100
     $null = Test-PrhFolder $DataRoot 'data folder' 120
-    if ($ShortcutFolder.IndexOfAny([char[]]'"%!') -ge 0) { throw 'The shortcut folder path cannot contain ", % or !.' }
+    if ($ShortcutFolder.IndexOfAny([char[]]'"%!&,;=^') -ge 0) { throw 'The shortcut folder path cannot contain any of these characters: " % ! & , ; = ^' }
     $a = $InstallRoot + '\'; $b = $DataRoot + '\'
     if ($a.StartsWith($b, [StringComparison]::OrdinalIgnoreCase) -or $b.StartsWith($a, [StringComparison]::OrdinalIgnoreCase)) {
         throw 'The program folder and the data folder must be separate (neither inside the other), so uninstalling never touches your data.'
@@ -364,7 +364,7 @@ try {
         (New-PrhShortcut 'Patent Research Hub - Check' $PowerShellExe (Get-PsArgs 'check.ps1') 'Show which sources are ready (names only, never key values)' 'shell32.dll,23'),
         (New-PrhShortcut 'Patent Research Hub - Data folder' (Join-Path $env:SystemRoot 'explorer.exe') ('"' + $DataRoot + '"') 'Open your research data, settings and keys file' 'shell32.dll,3'),
         (New-PrhShortcut 'Patent Research Hub - Documentation' (Join-Path $env:SystemRoot 'System32\notepad.exe') ('"' + $paths.Guide + '"') 'Getting started: where keys go, MCP setup, documentation' 'shell32.dll,1'),
-        (New-PrhShortcut 'Patent Research Hub - Repair' $PowerShellExe (Get-PsArgs 'setup.ps1' '-Repair') 'Reinstalls the Node.js packages, re-applies key file protection and rewrites Hub.cmd, MCP files, guide and shortcuts; program files, data and keys are not replaced' 'shell32.dll,238'),
+        (New-PrhShortcut 'Patent Research Hub - Repair' $PowerShellExe (Get-PsArgs 'setup.ps1' '-Repair') 'Reinstalls the Node.js packages, re-applies key file protection, refreshes the optional chart packages if installed, and rewrites Hub.cmd, MCP files, guide and shortcuts; program files, data and keys are not replaced' 'shell32.dll,238'),
         (New-PrhShortcut 'Patent Research Hub - Uninstall' $PowerShellExe (Get-PsArgs 'remove.ps1') 'Remove Patent Research Hub' 'shell32.dll,31')
     )
     Write-Good "Shortcuts created in $ShortcutFolder"

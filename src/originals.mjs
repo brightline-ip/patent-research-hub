@@ -59,7 +59,7 @@ export async function sweepStagingTemporaries(directory,{now=Date.now()}={}){
   let names;try{names=await fs.readdir(directory);}catch{return 0;}
   let removed=0;
   for(const name of names){
-    if(!/^\..+\.tmp$/.test(name))continue;
+    if(!/^\.[0-9a-f]{64}\.[0-9a-f-]{36}\.tmp$/.test(name))continue;
     const file=path.join(directory,name);
     try{const stat=await fs.lstat(file);if(stat.isFile()&&now-stat.mtimeMs>TEMPORARY_MAX_AGE_MS){await fs.rm(file,{force:true});removed++;}}catch{}
   }
@@ -85,7 +85,7 @@ export async function stageOriginal(bytes,sha256,intakeRoot,extension='pdf',{ren
     const temporary=path.join(directory,'.'+sha256+'.'+randomUUID()+'.tmp');
     try{
       await fs.writeFile(temporary,bytes,{flag:'wx'});
-      try{await rename(temporary,target);}
+      try{try{await rename(temporary,target);}catch(first){if(!['EPERM','EBUSY','EEXIST'].includes(first.code))throw first;await new Promise(r=>setTimeout(r,150));await rename(temporary,target);}}
       catch(error){
         // Another process may have staged the same file (or a scanner may hold it) between our check and the rename: if the target is now intact, accept it.
         if(!['EPERM','EBUSY','EEXIST'].includes(error.code))throw error;

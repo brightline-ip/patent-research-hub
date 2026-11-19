@@ -67,7 +67,7 @@ send client-confidential material to a provider unless your obligations permit i
   snippets load it with Node's `--env-file-if-exists`; keys then reach the Hub as environment variables, as before.
   Any program running as your Windows account can read the file. A variable already set in your Windows environment
   takes precedence over `keys.env` (Node's `--env-file` never overrides existing variables).
-- Setup refuses FAT/exFAT and network folders, paths containing `"`, `%` or `!`, over-long paths, overlapping program
+- Setup refuses FAT/exFAT and network folders, paths containing any of `" % ! & , ; = ^`, over-long paths, overlapping program
   and data folders, and non-empty folders it did not create. Marker files limit the uninstaller to folders Setup created;
   it unlinks junctions without following them, stops only Hub processes whose command line or executable is inside this
   program folder (and, during Setup or Repair, only after you answer yes; the default is no), and keeps the data folder

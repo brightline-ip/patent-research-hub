@@ -39,7 +39,7 @@ command line or an assistant can do today.
 
 Every retrieval is saved as an immutable response snapshot plus normalized records in a local SQLite database, so
 earlier results stay searchable offline. Reports are exported as JSON, Markdown and HTML (with CSV for statistics, and
-a chart only when Python with matplotlib is available; without them the report is still written, with a warning and no chart). Report tools put warnings first in their result; if writing the files fails after a paid BigQuery query, the result is still returned with an xportError field.
+a chart only when Python with matplotlib is available; without them the report is still written, with a warning and no chart). Report tools put `warnings` first in their result; if writing the files fails after a paid BigQuery query, the result is still returned with an `exportError` field.
 
 ## Requirements
 
@@ -72,7 +72,7 @@ Start Menu, folder **Patent Research Hub**:
 - **Data folder**: opens the data folder, where `keys.env` and `config.json` are.
 - **Documentation**: the getting-started guide (where keys go, how to connect an assistant).
 - **Repair**: reinstalls the npm packages, may offer any missing prerequisite (Node.js, optional Python) with your yes,
-  re-applies the protection on `keys.env`, and regenerates `Hub.cmd`, the MCP setup files, the getting-started guide
+  re-applies the protection on `keys.env`, refreshes the optional chart packages if the private `.venv` exists, and regenerates `Hub.cmd`, the MCP setup files, the getting-started guide
   and the shortcuts. It does not replace program files (run `Setup.cmd` from a newer download for that) and does not
   touch your data, settings or key values.
 - **Uninstall**: removes the program and shortcuts; keeps the data folder unless you choose to delete it. It ends by
@@ -290,7 +290,7 @@ npm test        # offline: mocked providers, no network, no live services
 Installed with Setup.cmd: use **Patent Research Hub - Uninstall** in the Start Menu. It stops Hub processes started
 from this installation (for example by an AI assistant), removes the program folder and shortcuts, and keeps the data
 folder unless you answer yes to deleting it. From a script: `installer\remove.ps1 -KeepData -Yes` or
-`-RemoveData -Yes` in the program folder. Node.js and Python stay installed, and you remove the `patent_research`
+`-RemoveData -Yes` in the program folder. If the program folder or the data folder is itself a link (junction or symbolic link), only the link is removed and its target is left as it is; the output says so. Node.js and Python stay installed, and you remove the `patent_research`
 entry from your MCP client configuration yourself.
 
 Installed from source: delete the install folder. Your data is in `<dataDir>` and `<exportsDir>` (inside the install folder unless you

@@ -24,10 +24,13 @@ export function probeChartRenderer({config,env=process.env}={}){
 // Validate the title and prove the export folder is writable BEFORE anything billable happens, so a paid query is never
 // run only to find that its report cannot be written.
 export async function preflightExport({title}={}){
-  if(title!==undefined&&title!==null&&(typeof title!=='string'||!title.trim()||title.length>200))throw new Error('Report title must be 1 to 200 characters. Nothing was queried.');
+  if(title!==undefined&&title!==null&&title!==''&&(typeof title!=='string'||!title.trim()||title.length>200))throw new Error('Report title must be 1 to 200 characters. Nothing was queried.');
   const root=exportsDir(readConfig());
-  try{await fs.mkdir(root,{recursive:true});const probe=path.join(root,'.write-test-'+randomUUID());await fs.writeFile(probe,'ok',{flag:'wx'});await fs.rm(probe,{force:true});}
+  const probe=path.join(root,'.write-test-'+randomUUID());
+  try{await fs.mkdir(root,{recursive:true});await fs.writeFile(probe,'ok',{flag:'wx'});}
   catch(error){throw new Error(`The export folder ${root} is not writable (${safeErrorMessage(error.message)}). Nothing was queried, so nothing was billed.`);}
+  // The folder is writable; a failure to delete the probe file is not a reason to refuse (a stray .write-test file is harmless).
+  await fs.rm(probe,{force:true}).catch(()=>{});
   return root;
 }
 // The query already ran (and may have been billed): an export failure must not discard its result.

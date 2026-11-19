@@ -95,11 +95,12 @@ const pdf=Buffer.from('%PDF-1.4\nROUND TWO FIXTURE\n%%EOF'),sha=createHash('sha2
 
 test('staging sweeps old orphan temporary files and keeps recent ones',async()=>{
   const intake=path.join(home,'intake-sweep'),dir=path.join(intake,'patent-research');fs.mkdirSync(dir,{recursive:true});
-  const old=path.join(dir,'.aaa.1111.tmp'),recent=path.join(dir,'.bbb.2222.tmp'),other=path.join(dir,'keep.pdf'),oldNotTmp=path.join(dir,'.hidden.txt');
-  for(const f of [old,recent,other,oldNotTmp])fs.writeFileSync(f,'x');
-  const past=new Date(Date.now()-11*60*1000);for(const f of [old,other,oldNotTmp])fs.utimesSync(f,past,past);
+  const hex=c=>c.repeat(64),uuid='11111111-2222-3333-4444-555555555555';
+  const old=path.join(dir,'.'+hex('a')+'.'+uuid+'.tmp'),recent=path.join(dir,'.'+hex('b')+'.'+uuid+'.tmp'),other=path.join(dir,'keep.pdf'),oldNotTmp=path.join(dir,'.hidden.txt'),oldForeign=path.join(dir,'.user-notes.tmp');
+  for(const f of [old,recent,other,oldNotTmp,oldForeign])fs.writeFileSync(f,'x');
+  const past=new Date(Date.now()-11*60*1000);for(const f of [old,other,oldNotTmp,oldForeign])fs.utimesSync(f,past,past);
   const target=await stageOriginal(pdf,sha,intake);
-  assert.ok(fs.existsSync(target));assert.ok(!fs.existsSync(old),'old orphan removed');assert.ok(fs.existsSync(recent),'recent temporary kept');assert.ok(fs.existsSync(other));assert.ok(fs.existsSync(oldNotTmp));
+  assert.ok(fs.existsSync(target));assert.ok(!fs.existsSync(old),'old orphan removed');assert.ok(fs.existsSync(recent),'recent temporary kept');assert.ok(fs.existsSync(other));assert.ok(fs.existsSync(oldNotTmp));assert.ok(fs.existsSync(oldForeign),'only files with the exact name pattern of the writer are swept');
   assert.equal(await sweepStagingTemporaries(path.join(home,'does-not-exist')),0);
 });
 
@@ -116,4 +117,19 @@ test('a rename that fails with EPERM, EBUSY or EEXIST is accepted when the targe
   }
   const other=path.join(home,'intake-other');
   await assert.rejects(stageOriginal(pdf,sha,other,'pdf',{rename:async()=>{const e=new Error('nope');e.code='ENOSPC';throw e;}}),{code:'ENOSPC'});
+});
+
+test('a rename that fails once with EPERM is retried and succeeds',async()=>{
+  const intake=path.join(home,'intake-retry');let calls=0;
+  const rename=async(from,to)=>{calls++;if(calls===1){const e=new Error('busy');e.code='EBUSY';throw e;}return fs.promises.rename(from,to);};
+  const target=await stageOriginal(pdf,sha,intake,'pdf',{rename});
+  assert.equal(calls,2);assert.equal(createHash('sha256').update(fs.readFileSync(target)).digest('hex'),sha);
+  assert.deepEqual(fs.readdirSync(path.dirname(target)).filter(n=>n.endsWith('.tmp')),[]);
+});
+
+test('an empty-string title counts as absent in the preflight (the export then uses the generated title)',async()=>{
+  const {preflightExport}=await import('../src/reports.mjs');
+  await preflightExport({title:''});await preflightExport({});await preflightExport({title:undefined});
+  await assert.rejects(preflightExport({title:'   '}),/title must be 1 to 200/);
+  assert.ok(!fs.readdirSync(exportsRoot).some(n=>n.startsWith('.write-test-')));
 });

@@ -62,7 +62,18 @@ try {
     $n = Stop-PrhProcesses $root
     if ($n) { Write-Good "Stopped $n Hub process(es) from this installation"; Start-Sleep -Seconds 1 }
 
-    if ($config) {
+    # The two deletions are independent: a program folder that cannot be removed never silently skips the data
+    # deletion you asked for, and each outcome is reported on its own.
+    $programGone = $false; $programError = $null
+    # Everything but the uninstaller scripts, installer.json and the marker file goes first; those go last, so a partial failure can be run again.
+    $programLink = $false; $dataLink = $false
+    try { $programLink = [bool](Remove-OwnedTree $root @('installer', 'installer.json', $script:PrhMarker)); $programGone = $true } catch { $programError = $_.Exception.Message }
+    $dataGone = $false; $dataError = $null
+    if ($RemoveData) {
+        try { $dataLink = [bool](Remove-OwnedTree $dataRoot @($script:PrhDataMarker)); $dataGone = $true } catch { $dataError = $_.Exception.Message }
+    }
+    # Shortcuts go only once the program folder is gone: while it is partly there, the Uninstall shortcut is still a way to run the removal again.
+    if ($programGone -and $config) {
         foreach ($lnk in @($config.shortcuts)) {
             if ($lnk -and [string]$lnk -like '*.lnk' -and (Test-Path -LiteralPath $lnk)) { Remove-Item -LiteralPath $lnk -Force }
         }
@@ -70,27 +81,20 @@ try {
         if ($folder -and (Test-Path -LiteralPath $folder) -and -not (Get-ChildItem -LiteralPath $folder -Force | Select-Object -First 1)) { Remove-Item -LiteralPath $folder -Force }
         Write-Good 'Shortcuts removed'
     }
-
-    # The two deletions are independent: a program folder that cannot be removed never silently skips the data
-    # deletion you asked for, and each outcome is reported on its own.
-    $programGone = $false; $programError = $null
-    # Everything but the uninstaller scripts, installer.json and the marker file goes first; those go last, so a partial failure can be run again.
-    try { Remove-OwnedTree $root @('installer', 'installer.json', $script:PrhMarker); $programGone = $true } catch { $programError = $_.Exception.Message }
-    $dataGone = $false; $dataError = $null
-    if ($RemoveData) {
-        try { Remove-OwnedTree $dataRoot @($script:PrhDataMarker); $dataGone = $true } catch { $dataError = $_.Exception.Message }
-    }
     Write-Host ''
-    if ($programGone) { Write-Good "Program folder DELETED: $root" } else { Write-Bad "Program folder NOT deleted (still present): $root"; Write-Info "    $programError" }
+    if ($programGone -and $programLink) { Write-Good "Program folder was a link; the link was removed, its target was left as is: $root" }
+    elseif ($programGone) { Write-Good "Program folder DELETED: $root" } else { Write-Bad "Program folder NOT deleted (still present): $root"; Write-Info "    $programError" }
     if ($RemoveData) {
-        if ($dataGone) { Write-Good "Data folder DELETED: $dataRoot" } else { Write-Bad "Data folder NOT deleted (still present): $dataRoot"; Write-Info "    $dataError" }
+        if ($dataGone -and $dataLink) { Write-Good "Data folder was a link; the link was removed, its target was left as is: $dataRoot" }
+        elseif ($dataGone) { Write-Good "Data folder DELETED: $dataRoot" } else { Write-Bad "Data folder NOT deleted (still present): $dataRoot"; Write-Info "    $dataError" }
     } elseif ($dataRoot) {
         Write-Good "Data folder KEPT (not deleted): $dataRoot"
     }
     if (-not $programGone -or ($RemoveData -and -not $dataGone)) {
         Write-Info 'To finish: close any program using files in the folder(s) named above as NOT deleted, then delete'
-        Write-Info 'that folder in File Explorer. (If the Uninstall shortcut still works you can run it again instead;'
-        Write-Info 'the marker file and the installer folder are removed last, so a partial removal can be repeated.)'
+        Write-Info 'that folder in File Explorer. If the program folder is still there, you can also run the removal again:'
+        Write-Info ('the Uninstall shortcut is kept until the program folder is gone, and ' + (Join-Path $root 'installer\remove.ps1') + ' (right-click, Run with PowerShell)')
+        Write-Info 'works while that file exists; the marker file and installer folder are removed last, so a partial removal can be repeated.'
         $exit = 1
     }
     if ($programGone -and $config -and $config.created_parent) {
