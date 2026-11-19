@@ -20,7 +20,7 @@ workflows refuse until set. Workflows are exported inactive and keep no executio
 
 ## Use
 
-1. Run n8n on `127.0.0.1` only. The Hub refuses a non-loopback or credential-bearing `n8nBaseUrl`.
+1. Run n8n on `127.0.0.1` only. The Hub refuses a non-loopback or credential-bearing `n8nBaseUrl`. The one exception is an explicit opt-in: set `n8nRemoteHost` to the exact hostname of an n8n you operate behind TLS and `n8nBaseUrl` to `https://<that host>` (a bare origin, no path). It is empty by default, and the gateway token is then sent over the network, so use it only for a host you control.
 2. Install the custom node package into n8n if you need PTAB or application originals.
 3. Create the credentials in n8n: USPTO ODP (Header Auth, `x-api-key`), GovInfo (Header Auth, `X-Api-Key`),
    CourtListener (Header Auth, `Authorization: Token …`), EPO OPS (OAuth2 client credentials against

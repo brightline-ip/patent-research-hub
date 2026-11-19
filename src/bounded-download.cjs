@@ -2,7 +2,8 @@
 const https=require('node:https');
 const dns=require('node:dns');
 const crypto=require('node:crypto');
-const MAX_BYTES=10*1024*1024,MAX_ACTIVE=2;
+// PTAB decisions: 10 MiB, 60 s. Application file-wrapper originals (reexamination requests, affidavits): 40 MiB, 180 s.
+const MAX_BYTES=10*1024*1024,MAX_APPLICATION_BYTES=40*1024*1024,PTAB_TIMEOUT_MS=60000,APPLICATION_TIMEOUT_MS=180000,MAX_ACTIVE=2;
 let active=0;
 function identity(input){
   const {application_number,document_identifier,native_filename}=input;
@@ -75,9 +76,11 @@ function receive(url,{headers,expected,maxBytes,signal,requestImpl,lookupImpl,al
     }catch{finish(Error('Provider request failed'));}
   });
 }
-async function boundedDownload(expected,{apiKey,maxBytes=MAX_BYTES,timeoutMs=60000,requestImpl=https.request,lookupImpl=dns.lookup}={}){
+async function boundedDownload(expected,{apiKey,maxBytes,timeoutMs,requestImpl=https.request,lookupImpl=dns.lookup}={}){
+  const ptab=expected.operation==='ptab',byteLimit=ptab?MAX_BYTES:MAX_APPLICATION_BYTES,timeLimit=ptab?PTAB_TIMEOUT_MS:APPLICATION_TIMEOUT_MS;
+  if(maxBytes===undefined)maxBytes=byteLimit;if(timeoutMs===undefined)timeoutMs=PTAB_TIMEOUT_MS;
   if(typeof apiKey!=='string'||!apiKey||apiKey.length>4096||/[\r\n]/.test(apiKey))throw Error('USPTO credential is unavailable');
-  if(!Number.isSafeInteger(maxBytes)||maxBytes<5||maxBytes>MAX_BYTES||!Number.isSafeInteger(timeoutMs)||timeoutMs<1||timeoutMs>60000)throw Error('Invalid download bounds');
+  if(!Number.isSafeInteger(maxBytes)||maxBytes<5||maxBytes>byteLimit||!Number.isSafeInteger(timeoutMs)||timeoutMs<1||timeoutMs>timeLimit)throw Error('Invalid download bounds');
   if(active>=MAX_ACTIVE)throw Error('Original downloader busy; resume later');
   active++;const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),timeoutMs);
   try{
@@ -90,4 +93,4 @@ async function boundedDownload(expected,{apiKey,maxBytes=MAX_BYTES,timeoutMs=600
 }
 async function downloadOriginal(input,options={}){return boundedDownload(identity(input),options);}
 async function downloadPtabOriginal(input,options={}){return boundedDownload(ptabIdentity(input),options);}
-module.exports={downloadOriginal,downloadPtabOriginal,identity,ptabIdentity,signedDestination,ptabSignedDestination,pinnedLookup,publicIPv4,MAX_BYTES};
+module.exports={downloadOriginal,downloadPtabOriginal,identity,ptabIdentity,signedDestination,ptabSignedDestination,pinnedLookup,publicIPv4,MAX_BYTES,MAX_APPLICATION_BYTES,APPLICATION_TIMEOUT_MS};

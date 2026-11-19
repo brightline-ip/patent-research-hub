@@ -1,6 +1,6 @@
 // Builds the two n8n workflows of the Office Action Rejections route, mirroring the existing search route:
 //   patent-research-oa-rejections       webhook POST /webhook/patent-research-oa-rejections (inbound header auth) -> core
-//   patent-research-oa-rejections-core  validate (src/oa-rejections.mjs) -> HTTP with the existing USPTO ODP credential
+//   patent-research-oa-rejections-core  validate (src/oa-rejections.mjs) -> records (POST) or fields (GET) HTTP node with the USPTO ODP credential
 //                                       (neverError, no redirects) -> package
 // Usage: node extras/n8n/scripts/build-oa-rejections-workflows.mjs [out.json]
 import fs from 'node:fs';
@@ -17,14 +17,24 @@ export function buildOaRejectionsWorkflows({credential={id:'REPLACE_WITH_USPTO_C
     nodes:[
       {id:'r1',name:'When Called by Another Workflow',type:'n8n-nodes-base.executeWorkflowTrigger',typeVersion:1.1,position:[-650,0],parameters:{inputSource:'passthrough'}},
       {id:'r2',name:'Validate Rejections Request',type:'n8n-nodes-base.code',typeVersion:2,position:[-400,0],parameters:{jsCode:VALIDATE_CODE}},
-      {id:'r3',name:'Provider - USPTO ODP credential',type:'n8n-nodes-base.httpRequest',typeVersion:4.2,position:[-150,0],
-        parameters:{method:'={{ $json.method }}',url:'={{ $json.url }}',authentication:'genericCredentialType',genericAuthType:'httpHeaderAuth',
-          sendBody:'={{ $json.method === "POST" }}',contentType:'raw',rawContentType:'={{ $json.contentType || "application/x-www-form-urlencoded" }}',body:'={{ $json.body }}',
+      // Fixed method/sendBody/content type per branch, like the search node: with these as expressions the
+      // provider received no usable POST body and answered "Request failed".
+      {id:'r5',name:'Is Records Request',type:'n8n-nodes-base.if',typeVersion:1,position:[-275,0],
+        parameters:{conditions:{string:[{value1:'={{ $json.method }}',value2:'POST'}]}}},
+      {id:'r3',name:'Provider - USPTO ODP credential',type:'n8n-nodes-base.httpRequest',typeVersion:4.2,position:[-150,-100],
+        parameters:{method:'POST',url:'={{ $json.url }}',authentication:'genericCredentialType',genericAuthType:'httpHeaderAuth',
+          sendBody:true,contentType:'raw',rawContentType:'application/x-www-form-urlencoded',body:'={{ $json.body }}',
+          options:{timeout:60000,redirect:{redirect:{followRedirects:false}},response:{response:{neverError:true}}}},
+        credentials:{httpHeaderAuth:credential}},
+      {id:'r6',name:'Provider fields - USPTO ODP credential',type:'n8n-nodes-base.httpRequest',typeVersion:4.2,position:[-150,100],
+        parameters:{method:'GET',url:'={{ $json.url }}',authentication:'genericCredentialType',genericAuthType:'httpHeaderAuth',
           options:{timeout:60000,redirect:{redirect:{followRedirects:false}},response:{response:{neverError:true}}}},
         credentials:{httpHeaderAuth:credential}},
       {id:'r4',name:'Package Rejections Response',type:'n8n-nodes-base.code',typeVersion:2,position:[100,0],parameters:{jsCode:PACKAGE_CODE}}],
     connections:{'When Called by Another Workflow':{main:[[{node:'Validate Rejections Request',type:'main',index:0}]]},
-      'Validate Rejections Request':{main:[[{node:'Provider - USPTO ODP credential',type:'main',index:0}]]},
+      'Validate Rejections Request':{main:[[{node:'Is Records Request',type:'main',index:0}]]},
+      'Is Records Request':{main:[[{node:'Provider - USPTO ODP credential',type:'main',index:0}],[{node:'Provider fields - USPTO ODP credential',type:'main',index:0}]]},
+      'Provider fields - USPTO ODP credential':{main:[[{node:'Package Rejections Response',type:'main',index:0}]]},
       'Provider - USPTO ODP credential':{main:[[{node:'Package Rejections Response',type:'main',index:0}]]}}};
   const gateway={id:GATEWAY_ID,name:'Patent Research - USPTO Office Action Rejections (authenticated gateway)',settings:SETTINGS,staticData:null,pinData:null,meta:null,
     nodes:[

@@ -26,8 +26,10 @@ export function packageRejectionsResponse(j){
  const body=j&&typeof j==='object'&&!Array.isArray(j)?j:null;
  if(!body)return {text:JSON.stringify({provider_status:null,provider_message:'unrecognized provider response'}),status:502,contentType:'application/json'};
  const code=Number(body.code??body.status);
- const looksError=(Number.isInteger(code)&&code>=400)||(typeof body.error==='string'&&!body.response);
+ // Success needs a documented shape: records {response:{...}} or the field list {fields:[...]}. Anything else (provider error objects, or a non-JSON page that
+ // n8n wraps as {data:'<html>...'}) is an error, never a 200.
+ const looksError=(Number.isInteger(code)&&code>=400)||!((body.response&&typeof body.response==='object'&&!Array.isArray(body.response))||Array.isArray(body.fields));
  if(!looksError)return {text:JSON.stringify(body),status:200,contentType:'application/json'};
- const message=['message','detailedMessage','errorDetails','error'].map(k=>body[k]).filter(v=>typeof v==='string').join(' | ').replace(/[\u0000-\u001f]/g,' ').slice(0,300);
+ const message=['message','detailedMessage','errorDetails','error','data'].map(k=>body[k]).filter(v=>typeof v==='string').join(' | ').replace(/[\u0000-\u001f]/g,' ').slice(0,300);
  return {text:JSON.stringify({provider_status:Number.isInteger(code)?code:null,provider_message:message}),status:Number.isInteger(code)&&code>=400&&code<600?code:502,contentType:'application/json'};
 }

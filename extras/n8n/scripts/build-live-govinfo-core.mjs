@@ -8,7 +8,8 @@ import {pathToFileURL} from 'node:url';
 import {validateWorkflowSource} from '../../../src/workflow-validation.mjs';
 
 export const VALIDATE_NODE='Validate Source Request',IF_NODE='Is Opinion PDF',PDF_NODE='Provider PDF — GovInfo credential',PACK_NODE='Package Opinion PDF';
-export const MAX_GOVINFO_PDF_BYTES=10*1024*1024;
+export {MAX_GOVINFO_PDF_BYTES} from '../../../src/govinfo-pdf.mjs';
+import {MAX_GOVINFO_PDF_BYTES} from '../../../src/govinfo-pdf.mjs';
 export const VALIDATE_CODE=validateWorkflowSource.toString()+`;return [{json:validateWorkflowSource($input.first().json,'govinfo')}];`;
 export const PACK_CODE=`const r=$input.first().json,url=$('${VALIDATE_NODE}').first().json.url,ct=String(r.headers?.['content-type']||'').split(';')[0].trim().toLowerCase();
 if(r.statusCode!==200)return [{json:{status:Number(r.statusCode)||502,url,contentType:ct,error:'GovInfo PDF request failed (HTTP '+Number(r.statusCode||0)+')'}}];
@@ -41,7 +42,23 @@ export function buildLiveGovinfoCore(live){
   return {...w,nodes,connections};
 }
 
-if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
+// Re-deploy of an already patched core (size limit raised from 10 MB to 40 MB): replace only the package code, and only
+// when the live code is exactly what this build produced with an earlier limit.
+export function refreshPackCode(live){
+  const w=Array.isArray(live)?live[0]:live;
+  if(w?.id!=='patent-research-govinfo-core')throw Error('Expected the live patent-research-govinfo-core export');
+  const p=w.nodes.filter(n=>n.name===PACK_NODE&&n.type==='n8n-nodes-base.code');
+  if(p.length!==1)throw Error('Live workflow has no single '+PACK_NODE+' node');
+  const old=p[0].parameters.jsCode,m=old.match(/b\.length>(\d+)/);
+  if(!m||old.replace(m[0],'b.length>'+MAX_GOVINFO_PDF_BYTES)!==PACK_CODE)throw Error('Live package code differs from this build beyond the size limit; refusing to patch');
+  return {...w,nodes:w.nodes.map(n=>n===p[0]?{...n,parameters:{...n.parameters,jsCode:PACK_CODE}}:n)};
+}
+
+if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href&&process.argv[2]==='--refresh-pack'){
+  const [,input,out='extras/n8n/deployment/govinfo-core.live.json']=process.argv.slice(2);
+  fs.writeFileSync(out,JSON.stringify([refreshPackCode(JSON.parse(fs.readFileSync(input,'utf8')))],null,2)+'\n');
+  console.log('Wrote '+out+' (package code only; import and publish the core).');
+} else if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   const [input,out='extras/n8n/deployment/govinfo-core.live.json']=process.argv.slice(2);
   if(!input)throw Error('usage: node extras/n8n/scripts/build-live-govinfo-core.mjs <live-export.json> [out.json]');
   fs.writeFileSync(out,JSON.stringify([buildLiveGovinfoCore(JSON.parse(fs.readFileSync(input,'utf8')))],null,2)+'\n');

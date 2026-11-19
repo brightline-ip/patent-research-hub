@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased — security review fixes
+## Unreleased — security review fixes and ported fixes
+
+- Original documents: the size limit for USPTO application originals (reexamination requests, third-party affidavits) and GovInfo court-opinion PDFs is raised from 10 MB to 40 MB on the direct transport, the client checks and the n8n workflows alike. The bounded downloader lets application originals run for up to 180 s (was 60 s); PTAB decisions stay at 10 MB and 60 s. The n8n custom node and the portable \pplication-pdf-core\ workflow match.
+- Office Action rejections (n8n route): a provider reply without a \{response}\ object (for example an HTML error page) is now a 502, not a 200; the field list \{fields:[...]}\ stays a 200. The core workflow uses separate records (POST) and fields (GET) HTTP nodes with literal method, body and content type.
+- n8n transport: an https gateway is accepted only on the host named in the new \
+8nRemoteHost\ setting (empty by default; loopback http is otherwise the only option). The base URL must be a bare origin.
+- n8n build scripts: the application-pdf core build writes LF line endings; \uild-live-govinfo-core.mjs --refresh-pack\ re-applies the package code to an already patched core.
 
 - BigQuery reconciliation removed from MCP (operator CLI only; explicit `--actual-bytes`, `--force-zero` to go below the estimate); `maxRequestsPerHour` per keyed provider; staged originals always use the intake directory; example examiner name replaced; trusted-config notes for dynamic module loading; `release-status` no longer fails on a fresh data directory.
 

@@ -32,6 +32,7 @@ export const configDefaults=Object.freeze({
   corpusClientModule:'',                    // optional corpus client for PatentsView intake; RESEARCH_CORPUS_CLIENT overrides
   pythonExecutable:'',                      // absolute path; RESEARCH_PYTHON overrides; empty = python on PATH
   n8nBaseUrl:'http://127.0.0.1:5678',       // n8n transport only (loopback)
+  n8nRemoteHost:'',                         // n8n transport only; optional hostname of a remote https n8n (exact match); empty = loopback only
   gatewayAuthFile:'',                       // n8n transport only; RESEARCH_GATEWAY_AUTH_FILE overrides
   modelProxyPort:8769,                      // n8n transport only
 });

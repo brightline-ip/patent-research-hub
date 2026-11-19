@@ -3,7 +3,7 @@
 // content type, size cap, canonical base64, %PDF- signature, SHA-256. Stage with originals.mjs stageOriginal().
 import {createHash} from 'node:crypto';
 import {callGateway as defaultCallGateway} from './gateway.mjs';
-export const MAX_GOVINFO_PDF_BYTES=10*1024*1024;
+export const MAX_GOVINFO_PDF_BYTES=40*1024*1024;  // raised from 10 MB 2026-11-04 (long opinions)
 const ID=/^USCOURTS-[a-z0-9]{2,8}-[A-Za-z0-9_.-]{1,80}$/;
 
 export function govinfoPdfUrl(packageId,granuleId){

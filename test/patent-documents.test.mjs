@@ -56,7 +56,7 @@ test('portable n8n application workflows match the active independently callable
   assert.deepEqual(JSON.parse(JSON.stringify(result[0].json)),{application_number:'18123456',url:'https://api.uspto.gov/api/v1/patent/applications/18123456/documents'});
   assert.equal(gateway.nodes.find(n=>n.type.endsWith('.executeWorkflow')).parameters.workflowId.value,core.id);
   assert.equal(originalCore.active,false);assert.equal(originalGateway.active,false);
-  const originalRequest=originalCore.nodes.find(n=>n.type==='n8n-nodes-patent-research.usptoOriginal');assert.ok(originalRequest.credentials.httpHeaderAuth);assert.equal(originalRequest.parameters.maxBytes,10485760);assert.equal(originalRequest.parameters.timeoutMs,60000);
+  const originalRequest=originalCore.nodes.find(n=>n.type==='n8n-nodes-patent-research.usptoOriginal');assert.ok(originalRequest.credentials.httpHeaderAuth);assert.equal(originalRequest.parameters.maxBytes,41943040);assert.equal(originalRequest.parameters.timeoutMs,180000);
   assert.equal(originalCore.nodes.some(n=>n.type.endsWith('.httpRequest')),false);
   assert.equal(originalGateway.nodes.find(n=>n.type.endsWith('.executeWorkflow')).parameters.workflowId.value,originalCore.id);
 });

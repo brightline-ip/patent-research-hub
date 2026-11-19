@@ -39,6 +39,7 @@
   "pythonExecutable": "",
 
   "n8nBaseUrl": "http://127.0.0.1:5678",
+  "n8nRemoteHost": "",
   "gatewayAuthFile": "",
   "referenceGatewayEnabled": false,
   "modelProxyPort": 8769

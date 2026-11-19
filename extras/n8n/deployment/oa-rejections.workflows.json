@@ -41,23 +41,78 @@
         }
       },
       {
+        "id": "r5",
+        "name": "Is Records Request",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 1,
+        "position": [
+          -275,
+          0
+        ],
+        "parameters": {
+          "conditions": {
+            "string": [
+              {
+                "value1": "={{ $json.method }}",
+                "value2": "POST"
+              }
+            ]
+          }
+        }
+      },
+      {
         "id": "r3",
         "name": "Provider - USPTO ODP credential",
         "type": "n8n-nodes-base.httpRequest",
         "typeVersion": 4.2,
         "position": [
           -150,
-          0
+          -100
         ],
         "parameters": {
-          "method": "={{ $json.method }}",
+          "method": "POST",
           "url": "={{ $json.url }}",
           "authentication": "genericCredentialType",
           "genericAuthType": "httpHeaderAuth",
-          "sendBody": "={{ $json.method === \"POST\" }}",
+          "sendBody": true,
           "contentType": "raw",
-          "rawContentType": "={{ $json.contentType || \"application/x-www-form-urlencoded\" }}",
+          "rawContentType": "application/x-www-form-urlencoded",
           "body": "={{ $json.body }}",
+          "options": {
+            "timeout": 60000,
+            "redirect": {
+              "redirect": {
+                "followRedirects": false
+              }
+            },
+            "response": {
+              "response": {
+                "neverError": true
+              }
+            }
+          }
+        },
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "REPLACE_WITH_USPTO_CREDENTIAL_ID",
+            "name": "USPTO ODP API Key"
+          }
+        }
+      },
+      {
+        "id": "r6",
+        "name": "Provider fields - USPTO ODP credential",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          -150,
+          100
+        ],
+        "parameters": {
+          "method": "GET",
+          "url": "={{ $json.url }}",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth",
           "options": {
             "timeout": 60000,
             "redirect": {
@@ -89,7 +144,7 @@
           0
         ],
         "parameters": {
-          "jsCode": "const pack=function packageRejectionsResponse(j){\n const body=j&&typeof j==='object'&&!Array.isArray(j)?j:null;\n if(!body)return {text:JSON.stringify({provider_status:null,provider_message:'unrecognized provider response'}),status:502,contentType:'application/json'};\n const code=Number(body.code??body.status);\n const looksError=(Number.isInteger(code)&&code>=400)||(typeof body.error==='string'&&!body.response);\n if(!looksError)return {text:JSON.stringify(body),status:200,contentType:'application/json'};\n const message=['message','detailedMessage','errorDetails','error'].map(k=>body[k]).filter(v=>typeof v==='string').join(' | ').replace(/[\\u0000-\\u001f]/g,' ').slice(0,300);\n return {text:JSON.stringify({provider_status:Number.isInteger(code)?code:null,provider_message:message}),status:Number.isInteger(code)&&code>=400&&code<600?code:502,contentType:'application/json'};\n};return [{json:pack($input.first().json)}];"
+          "jsCode": "const pack=function packageRejectionsResponse(j){\n const body=j&&typeof j==='object'&&!Array.isArray(j)?j:null;\n if(!body)return {text:JSON.stringify({provider_status:null,provider_message:'unrecognized provider response'}),status:502,contentType:'application/json'};\n const code=Number(body.code??body.status);\n // Success needs a documented shape: records {response:{...}} or the field list {fields:[...]}. Anything else (provider error objects, or a non-JSON page that\n // n8n wraps as {data:'<html>...'}) is an error, never a 200.\n const looksError=(Number.isInteger(code)&&code>=400)||!((body.response&&typeof body.response==='object'&&!Array.isArray(body.response))||Array.isArray(body.fields));\n if(!looksError)return {text:JSON.stringify(body),status:200,contentType:'application/json'};\n const message=['message','detailedMessage','errorDetails','error','data'].map(k=>body[k]).filter(v=>typeof v==='string').join(' | ').replace(/[\\u0000-\\u001f]/g,' ').slice(0,300);\n return {text:JSON.stringify({provider_status:Number.isInteger(code)?code:null,provider_message:message}),status:Number.isInteger(code)&&code>=400&&code<600?code:502,contentType:'application/json'};\n};return [{json:pack($input.first().json)}];"
         }
       }
     ],
@@ -109,7 +164,36 @@
         "main": [
           [
             {
+              "node": "Is Records Request",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Is Records Request": {
+        "main": [
+          [
+            {
               "node": "Provider - USPTO ODP credential",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Provider fields - USPTO ODP credential",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Provider fields - USPTO ODP credential": {
+        "main": [
+          [
+            {
+              "node": "Package Rejections Response",
               "type": "main",
               "index": 0
             }

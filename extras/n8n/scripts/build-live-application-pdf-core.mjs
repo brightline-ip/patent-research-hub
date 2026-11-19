@@ -20,7 +20,7 @@ export function buildLiveCore(exported){
   const nodes=w.nodes.map(n=>{
     if(!(n.name in CODE))return n;
     if(n.type!=='n8n-nodes-base.code')throw Error('Unexpected node type for '+n.name);
-    seen.add(n.name);return {...n,parameters:{...n.parameters,jsCode:CODE[n.name]}};
+    seen.add(n.name);return {...n,parameters:{...n.parameters,jsCode:CODE[n.name].replaceAll('\r\n','\n')}};  // CRLF checkouts must not change deployed code
   });
   for(const name of Object.keys(CODE))if(!seen.has(name))throw Error('Live workflow lacks node '+name);
   // HTTP Request nodes, credentials, connections and settings are carried over unchanged.

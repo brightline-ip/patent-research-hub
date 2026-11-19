@@ -19,9 +19,17 @@ export function gatewayAuth(config=readConfig()){
   if(!/^Bearer [A-Za-z0-9_-]{43,}$/.test(token||''))throw new Error('Existing n8n gateway authentication is unavailable');
   return token;
 }
-export async function callN8nGateway(route,body,{config=readConfig(),fetchImpl=fetch,maxBytes=8e6}={}){
+// The n8n gateway base: a local n8n over loopback http, or a remote n8n over https whose hostname exactly matches the
+// explicit opt-in `n8nRemoteHost` (unset by default). Never credentials, path, query or fragment.
+export function gatewayBase(config){
   const base=new URL(config.n8nBaseUrl);
-  if(!['127.0.0.1','localhost'].includes(base.hostname)||base.protocol!=='http:'||base.username||base.password)throw new Error('n8n must be local; configure TLS before remote use');
+  if(base.username||base.password||base.search||base.hash||base.pathname!=='/')throw new Error('n8nBaseUrl must be a bare origin with no credentials, path, query or fragment');
+  if(base.protocol==='http:'&&['127.0.0.1','localhost'].includes(base.hostname))return base;
+  if(base.protocol==='https:'&&typeof config.n8nRemoteHost==='string'&&config.n8nRemoteHost&&base.hostname===config.n8nRemoteHost.toLowerCase())return base;
+  throw new Error('n8n must be local (http://127.0.0.1) or https on the host named in n8nRemoteHost');
+}
+export async function callN8nGateway(route,body,{config=readConfig(),fetchImpl=fetch,maxBytes=8e6}={}){
+  const base=gatewayBase(config);
   if(!/^[a-z-]+$/.test(route))throw new Error('Invalid gateway route');
   const response=await request(new URL('/webhook/patent-research-'+route,base),{method:'POST',body,headers:{Authorization:gatewayAuth(config),'Content-Type':'application/json'},timeout:240000,maxBytes,fetchImpl});
   let result;try{result=JSON.parse(response.text);}catch{throw new Error(response.text.trim()?'n8n returned an invalid response; check the source workflow':'n8n returned an empty response: the source workflow may have failed. Check its provider response; this is not evidence of zero matches.');}

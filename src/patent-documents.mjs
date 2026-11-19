@@ -3,7 +3,7 @@ import {callGateway,readConfig} from './gateway.mjs';
 import {stageOriginal} from './originals.mjs';
 import {intakeDir} from './config.mjs';
 import {originalRequest,verifyOriginal} from './application-original.mjs';
-export const MAX_PATENT_DOCUMENT_BYTES=10*1024*1024;
+export const MAX_PATENT_DOCUMENT_BYTES=40*1024*1024;  // raised from 10 MB 2026-11-04: reexam requests and affidavits exceed 10 MB
 
 const inventoryUrl=applicationNumber=>'https://api.uspto.gov/api/v1/patent/applications/'+applicationNumber+'/documents';
 const originalUrl=(applicationNumber,documentIdentifier)=>'https://api.uspto.gov/api/v1/download/applications/'+applicationNumber+'/'+documentIdentifier+'.pdf';

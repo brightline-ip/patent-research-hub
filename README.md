@@ -122,7 +122,7 @@ or the file named by `PATENT_RESEARCH_CONFIG`. Credentials are **only** read fro
 | `googleBigQueryMonthlyTrackedMaxBytes` | `274877906944` (256 GiB) | Calendar-month budget tracked locally for queries made by this tool only. |
 | `maxRequestsPerHour` | 120 per keyed provider (USPTO, EPO, GovInfo, CourtListener, BigQuery); 0 = unlimited | Local request-count limit per provider and process. Not the provider's own quota. |
 | `directMinIntervalMs` | USPTO/EPO/CourtListener/BigQuery/public 1000 ms, GovInfo 3600 ms | Minimum spacing between requests to one provider. |
-| `requestTimeoutMs` | `25000` | Per-request timeout (originals and BigQuery use 60 s and 180 s). |
+| `requestTimeoutMs` | `25000` | Per-request timeout (PTAB originals 60 s, application originals and BigQuery 180 s). |
 | `ptabOriginalsEnabled`, `patentDocumentsEnabled`, `patentDocumentOriginalsEnabled` | `true` | Allow the USPTO document list and identity-checked original downloads. |
 | `PATENT_RESEARCH_DATA_DIR` / `dataDir` | `<install>/data` | Local database, backups, checkpoints, staged originals, reference PDFs. |
 | `PATENT_RESEARCH_EXPORTS_DIR` / `exportsDir` | `<install>/exports` | Exported reports. |

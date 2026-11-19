@@ -8,8 +8,8 @@ class UsptoOriginal{
     {displayName:'Appeal Number',name:'appealNumber',type:'string',default:'',displayOptions:{show:{operation:['ptab']}}},
     {displayName:'Document Identifier',name:'documentIdentifier',type:'string',default:'',required:true},
     {displayName:'Native DOCX Filename (Optional)',name:'nativeFilename',type:'string',default:'',displayOptions:{show:{operation:['application']}}},
-    {displayName:'Maximum Bytes',name:'maxBytes',type:'number',default:10485760,typeOptions:{minValue:5,maxValue:10485760}},
-    {displayName:'Deadline (Milliseconds)',name:'timeoutMs',type:'number',default:60000,typeOptions:{minValue:1000,maxValue:60000}}
+    {displayName:'Maximum Bytes (PTAB 10485760; application up to 41943040)',name:'maxBytes',type:'number',default:10485760,typeOptions:{minValue:5,maxValue:41943040}},
+    {displayName:'Deadline (Milliseconds; PTAB 60000, application up to 180000)',name:'timeoutMs',type:'number',default:60000,typeOptions:{minValue:1000,maxValue:180000}}
   ]};}
   async execute(){
     if(this.getInputData().length!==1)throw Error('Download one original per invocation');

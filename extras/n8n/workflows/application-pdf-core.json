@@ -36,8 +36,8 @@
         "applicationNumber": "={{ $json.application_number || $json.body?.application_number }}",
         "documentIdentifier": "={{ $json.document_identifier || $json.body?.document_identifier }}",
         "nativeFilename": "={{ $json.native_filename ?? $json.body?.native_filename ?? '' }}",
-        "maxBytes": 10485760,
-        "timeoutMs": 60000
+        "maxBytes": 41943040,
+        "timeoutMs": 180000
       }
     },
     {
@@ -52,7 +52,7 @@
       "parameters": {
         "width": 800,
         "height": 230,
-        "content": "## Local candidate — deploy node package before this workflow\nInstall custom-nodes/n8n-nodes-patent-research into the reviewed n8n runtime. Reuse the existing USPTO Header Auth credential; do not put its value in expressions.\n\nCaps each body as chunks arrive (10 MiB maximum), enforces a single 60-second deadline, checks actual MIME/length/signature, rejects nonpublic DNS and pins the resolved IP. Follows one exact USPTO signed redirect without the API key. Signed URLs never become node outputs. At most two in-flight originals per process; no automatic retries.\n\nReturns the same identity-bound PDF/DOCX envelope. No normalization, corpus indexing or legal verification is implied."
+        "content": "## Local candidate — deploy node package before this workflow\nInstall custom-nodes/n8n-nodes-patent-research into the reviewed n8n runtime. Reuse the existing USPTO Header Auth credential; do not put its value in expressions.\n\nCaps each body as chunks arrive (40 MiB maximum for application originals), enforces a single 180-second deadline (workflow limit 270 s), checks actual MIME/length/signature, rejects nonpublic DNS and pins the resolved IP. Follows one exact USPTO signed redirect without the API key. Signed URLs never become node outputs. At most two in-flight originals per process; no automatic retries.\n\nReturns the same identity-bound PDF/DOCX envelope. No normalization, corpus indexing or legal verification is implied."
       }
     }
   ],

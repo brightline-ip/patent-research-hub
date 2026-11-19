@@ -109,6 +109,7 @@ export async function googleAccessToken(options={}){
 }
 
 // ---- Source routes: uspto, ptab, govinfo, courtlistener, epo, public ----
+const MAX_ORIGINAL_BYTES=40*1024*1024;  // GovInfo opinion PDFs and USPTO application originals; same limit as the n8n workflows
 function isGovinfoPdf(url){return /^https:\/\/api\.govinfo\.gov\/packages\/[^/]+\/granules\/[^/]+\/pdf$/.test(url);}
 async function sourceRoute(route,body,ctx,maxBytes){
   const provider=providerForRoute[route];
@@ -124,7 +125,7 @@ async function sourceRoute(route,body,ctx,maxBytes){
   const send=async()=>{
     if(route==='epo')headers.Authorization='Bearer '+await epoAccessToken(ctx);
     await pace(provider||'public',ctx);
-    return request(validated.url,{method:validated.method,body:validated.method==='POST'?validated.body:undefined,headers:validated.method==='POST'?{'Content-Type':'application/json',...headers}:headers,timeout:pdf?60000:ctx.config.requestTimeoutMs,maxBytes:pdf?10*1024*1024+1:Math.min(maxBytes||6e6,6e6),fetchImpl:ctx.fetchImpl,allowHttpError:true,binary:pdf});
+    return request(validated.url,{method:validated.method,body:validated.method==='POST'?validated.body:undefined,headers:validated.method==='POST'?{'Content-Type':'application/json',...headers}:headers,timeout:pdf?60000:ctx.config.requestTimeoutMs,maxBytes:pdf?MAX_ORIGINAL_BYTES+1:Math.min(maxBytes||6e6,6e6),fetchImpl:ctx.fetchImpl,allowHttpError:true,binary:pdf});
   };
   let r=await send();
   // A cached EPO token can be revoked early; renew it once for this idempotent GET.
@@ -133,7 +134,7 @@ async function sourceRoute(route,body,ctx,maxBytes){
     const contentType=String(r.contentType).split(';')[0].trim().toLowerCase();
     if(r.status!==200)return {status:r.status||502,url:validated.url,contentType,error:'GovInfo PDF request failed (HTTP '+Number(r.status||0)+')'};
     const bytes=r.buffer;
-    if(contentType!=='application/pdf'||bytes.length>10*1024*1024||bytes.subarray(0,5).toString('ascii')!=='%PDF-')throw new Error('GovInfo original is oversized or is not a PDF');
+    if(contentType!=='application/pdf'||bytes.length>MAX_ORIGINAL_BYTES||bytes.subarray(0,5).toString('ascii')!=='%PDF-')throw new Error('GovInfo original is oversized or is not a PDF');
     return {status:200,url:validated.url,contentType:'application/pdf',bytes:bytes.length,base64:bytes.toString('base64')};
   }
   return {text:r.text,status:r.status,contentType:r.contentType};
@@ -148,7 +149,8 @@ async function referenceIndex(body,ctx){
 }
 
 // ---- USPTO originals and document inventory (same bounded, identity-checked downloader as the n8n node) ----
-const downloadOptions=ctx=>({apiKey:ctx.env.USPTO_API_KEY,maxBytes:10485760,timeoutMs:60000,...(ctx.requestImpl?{requestImpl:ctx.requestImpl}:{}),...(ctx.lookupImpl?{lookupImpl:ctx.lookupImpl}:{})});
+// PTAB decisions keep 10 MiB / 60 s; application originals (reexamination requests, affidavits) get 40 MiB / 180 s (USPTO downloads can be slow).
+const downloadOptions=(ctx,application=false)=>({apiKey:ctx.env.USPTO_API_KEY,maxBytes:application?bounded.MAX_APPLICATION_BYTES:bounded.MAX_BYTES,timeoutMs:application?bounded.APPLICATION_TIMEOUT_MS:60000,...(ctx.requestImpl?{requestImpl:ctx.requestImpl}:{}),...(ctx.lookupImpl?{lookupImpl:ctx.lookupImpl}:{})});
 async function ptabFiles(body,ctx){
   requireProvider('uspto',ctx);await pace('uspto',ctx);
   return bounded.downloadPtabOriginal({trial_number:body?.trialNumber||'',appeal_number:body?.appealNumber||'',document_identifier:body?.documentIdentifier},downloadOptions(ctx));
@@ -157,7 +159,7 @@ async function applicationPdf(body,ctx){
   requireProvider('uspto',ctx);
   if(body?.file_id||body?.format)throw new Error('File-form and XML-archive downloads are available only with the optional n8n transport in this release');
   await pace('uspto',ctx);
-  const result=await bounded.downloadOriginal({application_number:body?.application_number,document_identifier:body?.document_identifier,...(body?.native_filename?{native_filename:body.native_filename}:{})},downloadOptions(ctx));
+  const result=await bounded.downloadOriginal({application_number:body?.application_number,document_identifier:body?.document_identifier,...(body?.native_filename?{native_filename:body.native_filename}:{})},downloadOptions(ctx,true));
   return {...result,file_id:null};
 }
 async function applicationDocuments(body,ctx){

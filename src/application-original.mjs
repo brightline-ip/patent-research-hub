@@ -41,7 +41,7 @@ export function signedDownload(r,i){
 // Size and signature check of the downloaded bytes; returns the content type to report. A TAR is checked by its
 // first header block checksum and 512-byte framing only: it is never extracted here (callers extract with bounds).
 export function verifyOriginal(b,i){
- if(!b||typeof b.length!=='number'||b.length<5||b.length>10485760)throw Error('Original size or signature mismatch');
+ if(!b||typeof b.length!=='number'||b.length<5||b.length>41943040)throw Error('Original size or signature mismatch');
  if(i.extension==='pdf'){if(b.subarray(0,5).toString('ascii')!=='%PDF-')throw Error('Original size or signature mismatch');return 'application/pdf';}
  if(i.extension==='docx'){if(b.subarray(0,2).toString('ascii')!=='PK')throw Error('Original size or signature mismatch');return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';}
  if(i.extension==='tar'){
