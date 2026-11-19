@@ -91,26 +91,31 @@ function Test-PrhFolder([string]$Path, [string]$Label, [int]$MaxLength) {
     return $info
 }
 
-function New-PrhShortcut([string]$Name, [string]$Target, [string]$Arguments, [string]$Description, [string]$Icon) {
-    New-Item -ItemType Directory -Force -Path $ShortcutFolder | Out-Null
-    $lnk = Join-Path $ShortcutFolder ($Name + '.lnk')
-    $s = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
-    $s.TargetPath = $Target
-    $s.Arguments = $Arguments
-    # Never the program folder: a process whose current directory is inside it blocks Uninstall and Repair from deleting it.
-    $s.WorkingDirectory = $env:SystemRoot
-    $s.Description = $Description
-    $s.IconLocation = "$env:SystemRoot\System32\$Icon"
-    $s.Save()
-    return $lnk
+# Shortcuts are saved in a plain-path staging folder and moved into place (see Save-PrhShortcut), so the shortcut folder may
+# contain any character. Paths stored INSIDE a shortcut (target, arguments) must be ANSI-safe: those use the 8.3 short form
+# when the long form has characters the code page cannot hold. Returns $null (and warns) if a shortcut cannot be made.
+function New-PrhShortcut([string]$Name, [string]$Target, [scriptblock]$Arguments, [string]$Description, [string]$Icon) {
+    try {
+        $args2 = & $Arguments
+        # Never the program folder: a process whose current directory is inside it blocks Uninstall and Repair from deleting it.
+        return (Save-PrhShortcut $ShortcutFolder $Name $Target $args2 $env:SystemRoot $Description "$env:SystemRoot\System32\$Icon" @([IO.Path]::GetTempPath(), $InstallRoot, $DataRoot))
+    } catch {
+        Write-Warn2 "The shortcut '$Name' was not created: $($_.Exception.Message) Use $(Join-Path $InstallRoot 'installer') instead."
+        return $null
+    }
+}
+
+function Get-ShortcutPath([string]$Path) {
+    $safe = Get-PrhAnsiSafePath $Path
+    if (-not $safe) { throw "The path $Path has characters a Windows shortcut cannot store and no short (8.3) name exists." }
+    return $safe
 }
 
 function Get-PsArgs([string]$Script, [string]$Extra = '') {
-    $a = '-NoProfile -ExecutionPolicy Bypass -File "' + (Join-Path $InstallRoot "installer\$Script") + '"'
+    $a = '-NoProfile -ExecutionPolicy Bypass -File "' + (Get-ShortcutPath (Join-Path $InstallRoot "installer\$Script")) + '"'
     if ($Extra) { $a += ' ' + $Extra }
     return $a
 }
-
 $exit = 0
 try {
     if ($Repair) {
@@ -142,6 +147,9 @@ try {
     $info = Test-PrhFolder $InstallRoot 'program folder' 100
     $null = Test-PrhFolder $DataRoot 'data folder' 120
     if ($ShortcutFolder.IndexOfAny([char[]]'"%!&,;=^') -ge 0) { throw 'The shortcut folder path cannot contain any of these characters: " % ! & , ; = ^' }
+    # Before anything is copied or created: can a shortcut be saved in that folder at all (a test shortcut is made and removed)?
+    $lnkProblem = Test-PrhShortcutFolder $ShortcutFolder @([IO.Path]::GetTempPath())
+    if ($lnkProblem) { throw "Shortcuts cannot be created in $ShortcutFolder ($lnkProblem). Nothing was installed. Run Setup again with -ShortcutFolder set to a folder whose path uses only basic Latin letters and digits, for example C:\PatentResearchHubShortcuts." }
     $a = $InstallRoot + '\'; $b = $DataRoot + '\'
     if ($a.StartsWith($b, [StringComparison]::OrdinalIgnoreCase) -or $b.StartsWith($a, [StringComparison]::OrdinalIgnoreCase)) {
         throw 'The program folder and the data folder must be separate (neither inside the other), so uninstalling never touches your data.'
@@ -360,16 +368,18 @@ try {
 
     # ---- 5. Shortcuts and check ---------------------------------------------------------------
     Write-Step 'Step 5 of 5: Shortcuts and first check'
+    # The settings and marker are written BEFORE the shortcuts, so a failure from here on still leaves installer\remove.ps1 usable.
+    $config = [ordered]@{ version = $script:PrhVersion; data_root = $DataRoot; shortcut_folder = $ShortcutFolder; shortcuts = @(); node = $node.Exe; created_parent = $createdParent }
+    Write-Utf8NoBom $paths.Config ($config | ConvertTo-Json -Depth 4)
     $shortcuts = @(
-        (New-PrhShortcut 'Patent Research Hub - Check' $PowerShellExe (Get-PsArgs 'check.ps1') 'Show which sources are ready (names only, never key values)' 'shell32.dll,23'),
-        (New-PrhShortcut 'Patent Research Hub - Data folder' (Join-Path $env:SystemRoot 'explorer.exe') ('"' + $DataRoot + '"') 'Open your research data, settings and keys file' 'shell32.dll,3'),
-        (New-PrhShortcut 'Patent Research Hub - Documentation' (Join-Path $env:SystemRoot 'System32\notepad.exe') ('"' + $paths.Guide + '"') 'Getting started: where keys go, MCP setup, documentation' 'shell32.dll,1'),
-        (New-PrhShortcut 'Patent Research Hub - Repair' $PowerShellExe (Get-PsArgs 'setup.ps1' '-Repair') 'Reinstalls the Node.js packages, re-applies key file protection, refreshes the optional chart packages if installed, and rewrites Hub.cmd, MCP files, guide and shortcuts; program files, data and keys are not replaced' 'shell32.dll,238'),
-        (New-PrhShortcut 'Patent Research Hub - Uninstall' $PowerShellExe (Get-PsArgs 'remove.ps1') 'Remove Patent Research Hub' 'shell32.dll,31')
-    )
-    Write-Good "Shortcuts created in $ShortcutFolder"
-
-    $config = [ordered]@{ version = $script:PrhVersion; data_root = $DataRoot; shortcut_folder = $ShortcutFolder; shortcuts = @($shortcuts); node = $node.Exe; created_parent = $createdParent }
+        (New-PrhShortcut 'Patent Research Hub - Check' $PowerShellExe { Get-PsArgs 'check.ps1' } 'Show which sources are ready (names only, never key values)' 'shell32.dll,23'),
+        (New-PrhShortcut 'Patent Research Hub - Data folder' (Join-Path $env:SystemRoot 'explorer.exe') { '"' + (Get-ShortcutPath $DataRoot) + '"' } 'Open your research data, settings and keys file' 'shell32.dll,3'),
+        (New-PrhShortcut 'Patent Research Hub - Documentation' (Join-Path $env:SystemRoot 'System32\notepad.exe') { '"' + (Get-ShortcutPath $paths.Guide) + '"' } 'Getting started: where keys go, MCP setup, documentation' 'shell32.dll,1'),
+        (New-PrhShortcut 'Patent Research Hub - Repair' $PowerShellExe { Get-PsArgs 'setup.ps1' '-Repair' } 'Reinstalls the Node.js packages, re-applies key file protection, refreshes the optional chart packages if installed, and rewrites Hub.cmd, MCP files, guide and shortcuts; program files, data and keys are not replaced' 'shell32.dll,238'),
+        (New-PrhShortcut 'Patent Research Hub - Uninstall' $PowerShellExe { Get-PsArgs 'remove.ps1' } 'Remove Patent Research Hub' 'shell32.dll,31')
+    ) | Where-Object { $_ }
+    if ($shortcuts.Count -eq 5) { Write-Good "Shortcuts created in $ShortcutFolder" } else { Write-Warn2 "Only $($shortcuts.Count) of 5 shortcuts could be created. To remove the Hub later, run $(Join-Path $InstallRoot 'installer\remove.ps1')." }
+    $config.shortcuts = @($shortcuts)
     Write-Utf8NoBom $paths.Config ($config | ConvertTo-Json -Depth 4)
 
     $report = Invoke-PrhDoctor $node.Exe $paths

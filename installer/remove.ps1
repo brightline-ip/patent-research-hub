@@ -87,6 +87,8 @@ try {
     if ($RemoveData) {
         if ($dataGone -and $dataLink) { Write-Good "Data folder was a link; the link was removed, its target was left as is: $dataRoot" }
         elseif ($dataGone) { Write-Good "Data folder DELETED: $dataRoot" } else { Write-Bad "Data folder NOT deleted (still present): $dataRoot"; Write-Info "    $dataError" }
+    } elseif ($dataRoot -and -not (Test-Path -LiteralPath $dataRoot)) {
+        Write-Info "Data folder not present (nothing to keep or delete): $dataRoot"
     } elseif ($dataRoot) {
         Write-Good "Data folder KEPT (not deleted): $dataRoot"
     }

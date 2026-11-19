@@ -358,3 +358,60 @@ function Get-PrhHubCmdText([string]$NodeExe, $Paths) {
         ''
     ) -join "`r`n")
 }
+# --- Shortcuts ----------------------------------------------------------------------------------------------------------
+# WScript.Shell stores shortcut paths, arguments and descriptions in the ANSI code page. A character outside it (for example
+# Japanese on a Western Windows) is replaced by "?", and Save() fails for a .lnk path containing one.
+
+# Returns $Path unchanged if the ANSI code page can hold it, otherwise its 8.3 short form if that can, otherwise $null.
+function Get-PrhAnsiSafePath([string]$Path) {
+    $ansi = [Text.Encoding]::GetEncoding([Globalization.CultureInfo]::CurrentCulture.TextInfo.ANSICodePage)
+    $holds = { param($s) $ansi.GetString($ansi.GetBytes($s)) -ceq $s }
+    if (& $holds $Path) { return $Path }
+    try {
+        $fso = New-Object -ComObject Scripting.FileSystemObject
+        $short = if ([IO.Directory]::Exists($Path)) { $fso.GetFolder($Path).ShortPath } elseif ([IO.File]::Exists($Path)) { $fso.GetFile($Path).ShortPath } else { $null }
+        if ($short -and (& $holds $short)) { return $short }
+    } catch {}
+    return $null
+}
+
+# A folder, existing or not, in which a temporary .lnk can be saved by name that the ANSI code page holds.
+function Get-PrhShortcutStagingFolder([string[]]$Candidates) {
+    foreach ($c in $Candidates) {
+        if (-not $c -or -not [IO.Directory]::Exists($c)) { continue }
+        $safe = Get-PrhAnsiSafePath $c
+        if ($safe) { return $safe }
+    }
+    return $null
+}
+
+# Saves a shortcut in an ANSI-safe staging folder, then moves the file with .NET (which is Unicode-safe) into $Folder.
+# Returns the final path. Throws a plain message if either step fails.
+function Save-PrhShortcut([string]$Folder, [string]$Name, [string]$Target, [string]$Arguments, [string]$WorkDir, [string]$Description, [string]$IconLocation, [string[]]$StagingCandidates) {
+    $stage = Get-PrhShortcutStagingFolder $StagingCandidates
+    if (-not $stage) { throw 'No folder with a plain (ANSI) path was found to build the shortcut in.' }
+    $tmp = Join-Path $stage ('prh-' + [Guid]::NewGuid().ToString('N') + '.lnk')
+    try {
+        $s = (New-Object -ComObject WScript.Shell).CreateShortcut($tmp)
+        $s.TargetPath = $Target; $s.Arguments = $Arguments; $s.WorkingDirectory = $WorkDir; $s.Description = $Description
+        if ($IconLocation) { $s.IconLocation = $IconLocation }
+        $s.Save()
+        New-Item -ItemType Directory -Force -Path $Folder | Out-Null
+        $dest = Join-Path $Folder ($Name + '.lnk')
+        [IO.File]::Copy($tmp, $dest, $true)
+        return $dest
+    } finally { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
+}
+
+# Checks, before anything is installed, that shortcuts can be created in $Folder (which may not exist yet): saves a test
+# shortcut through the same route and removes it again. Returns $null when it works, otherwise the reason.
+function Test-PrhShortcutFolder([string]$Folder, [string[]]$StagingCandidates) {
+    $probeFolder = $Folder
+    while ($probeFolder -and -not [IO.Directory]::Exists($probeFolder)) { $probeFolder = Split-Path -Parent $probeFolder }
+    if (-not $probeFolder) { return "No part of the shortcut folder path exists." }
+    try {
+        $dest = Save-PrhShortcut $probeFolder ('prh-test-' + [Guid]::NewGuid().ToString('N')) (Join-Path $env:SystemRoot 'System32\notepad.exe') '' $env:SystemRoot 'test' $null $StagingCandidates
+        Remove-Item -LiteralPath $dest -Force
+        return $null
+    } catch { return $_.Exception.Message }
+}

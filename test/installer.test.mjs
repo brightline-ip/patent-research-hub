@@ -88,7 +88,7 @@ test('Setup dry run accepts folders with non-ASCII names',{skip},()=>{
 
 test('shortcuts never start in the program folder, and Hub.cmd is UTF-8 under code page 65001',{skip},()=>{
   const setup=fs.readFileSync(path.join(repo,'installer','setup.ps1'),'utf8');
-  assert.match(setup,/\$s\.WorkingDirectory = \$env:SystemRoot/);assert.doesNotMatch(setup,/WorkingDirectory = \$InstallRoot/);
+  assert.match(setup,/Save-PrhShortcut \$ShortcutFolder \$Name \$Target \$args2 \$env:SystemRoot/);assert.doesNotMatch(setup,/WorkingDirectory = \$InstallRoot/);
   const common=fs.readFileSync(path.join(repo,'installer','common.ps1'),'utf8');
   assert.match(common,/'chcp 65001 >nul'/);assert.match(setup,/Write-Utf8NoBom \$paths\.HubCmd/);assert.doesNotMatch(setup,/Encoding\]::ASCII/);
 });
@@ -312,4 +312,55 @@ test('no tracked text file contains control characters other than tab, CR and LF
     for(let i=0;i<b.length;i++){const c=b[i];if(c<32&&c!==9&&c!==10&&c!==13){bad.push(`${path.relative(repo,p)} offset ${i} byte 0x${c.toString(16)}`);break;}}
   }};
   walk(repo);assert.deepEqual(bad,[]);
+});
+// ---- fourth round: shortcut folders outside the ANSI code page -------------------------------------------------------------
+test('shortcuts can be saved into a folder whose path has characters outside the ANSI code page (saved in a plain path, then moved)',{skip},()=>{
+  const parent=path.join(scratch,'C-é-日本','sc-日本');fs.mkdirSync(parent,{recursive:true});
+  const common=path.join(repo,'installer','common.ps1'),dataDir=path.join(scratch,'dat-日本');fs.mkdirSync(dataDir,{recursive:true});
+  const script=`[Console]::OutputEncoding = [Text.Encoding]::UTF8
+. '${common}'
+$folder = '${parent}'
+'PREFLIGHT=[' + (Test-PrhShortcutFolder $folder @([IO.Path]::GetTempPath())) + ']'
+'PREFLIGHT-NEW=[' + (Test-PrhShortcutFolder (Join-Path $folder 'not-yet\\child') @([IO.Path]::GetTempPath())) + ']'
+$safe = Get-PrhAnsiSafePath '${dataDir}'
+'SAFE=' + [bool]$safe + ' ANSIOK=' + ($safe -cmatch '^[\\x20-\\x7e\\u00a0-\\u00ff]+$')
+$lnk = Save-PrhShortcut $folder 'Patent Research Hub - Check' (Join-Path $env:SystemRoot 'explorer.exe') ('"' + $safe + '"') $env:SystemRoot 'test' $null @([IO.Path]::GetTempPath())
+'EXISTS=' + [IO.File]::Exists($lnk)
+'LEFTOVER=' + @([IO.Directory]::GetFiles($folder, 'prh-test-*')).Count
+$copy = Join-Path ([IO.Path]::GetTempPath()) ('prh-copy-' + [Guid]::NewGuid().ToString('N') + '.lnk'); [IO.File]::Copy($lnk, $copy)
+'ARGS=' + (New-Object -ComObject WScript.Shell).CreateShortcut($copy).Arguments
+Remove-Item -LiteralPath $copy -Force`;
+  const r=run(['-Command',script]);
+  assert.equal(r.status,0,r.stdout+r.stderr);
+  assert.match(r.stdout,/PREFLIGHT=\[\]/);assert.match(r.stdout,/PREFLIGHT-NEW=\[\]/);assert.match(r.stdout,/SAFE=True ANSIOK=True/);
+  assert.match(r.stdout,/EXISTS=True/);assert.match(r.stdout,/LEFTOVER=0/);
+  assert.match(r.stdout,/ARGS="[^"?]+"/,'the stored argument must not contain "?" placeholders');
+  assert.ok(fs.existsSync(path.join(parent,'Patent Research Hub - Check.lnk')));
+});
+
+test('Setup stops before creating anything when shortcuts cannot be created in the shortcut folder; a CJK shortcut folder passes the preflight',{skip},()=>{
+  const bundle=stageDownload('dl-lnk');
+  const base=['-File',path.join(bundle,'installer','setup.ps1'),'-DryRun','-NoOptional','-NoOpen','-InstallRoot',path.join(scratch,'lnk-app'),'-DataRoot',path.join(scratch,'lnk-dat')];
+  const ok=run([...base,'-ShortcutFolder',path.join(scratch,'C-é-日本','sc-日本')]);
+  assert.equal(ok.status,0,ok.stdout+ok.stderr);assert.match(ok.stdout,/Dry run finished/);
+  const drive=['Q','R','S','T','U','V','W'].find(l=>!fs.existsSync(l+':\\'));
+  if(drive){
+    const bad=run([...base,'-ShortcutFolder',drive+':\\no\\sc']);
+    assert.equal(bad.status,1,bad.stdout+bad.stderr);assert.match(bad.stdout,/Shortcuts cannot be created in .*Nothing was installed.*-ShortcutFolder.*basic Latin/s);
+  }
+  assert.ok(!fs.existsSync(path.join(scratch,'lnk-app'))&&!fs.existsSync(path.join(scratch,'lnk-dat')));
+});
+
+test('Setup writes installer.json (and has the marker) before it creates shortcuts, so installer\\remove.ps1 works after any later failure',{skip},()=>{
+  const setup=fs.readFileSync(path.join(repo,'installer','setup.ps1'),'utf8');
+  const config=setup.indexOf('Write-Utf8NoBom $paths.Config'),firstShortcut=setup.indexOf("(New-PrhShortcut 'Patent Research Hub - Check'"),marker=setup.indexOf('Write-Utf8NoBom $paths.Marker');
+  assert.ok(marker>0&&config>marker&&firstShortcut>config,`marker ${marker}, config ${config}, shortcuts ${firstShortcut}`);
+  assert.match(setup,/\$config\.shortcuts = @\(\$shortcuts\)/);
+});
+
+test('Uninstall says the data folder is not present, rather than kept, when it no longer exists',{skip},()=>{
+  const f=fakeInstall('nodata');fs.rmSync(f.data,{recursive:true,force:true});
+  const r=run(['-File',path.join(f.app,'installer','remove.ps1'),'-KeepData','-Yes'],{cwd:os.tmpdir()});
+  assert.equal(r.status,0,r.stdout+r.stderr);
+  assert.match(r.stdout,/Data folder not present/);assert.doesNotMatch(r.stdout,/Data folder KEPT/);
 });
