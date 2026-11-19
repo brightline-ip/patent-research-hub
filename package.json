@@ -19,9 +19,9 @@
     "n8n:prepare-deployment": "node extras/n8n/scripts/prepare-deployment.mjs"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.30.0",
-    "fast-xml-parser": "5.11.1",
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "fast-xml-parser": "5.12.1",
     "parse5": "8.0.1",
-    "zod": "4.5.4"
+    "zod": "4.6.6"
   }
 }

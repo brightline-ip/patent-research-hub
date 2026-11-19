@@ -251,7 +251,7 @@ try {
     }
     # Clear the "downloaded from the Internet" mark on the copies this installation runs.
     Get-ChildItem -LiteralPath $InstallRoot -Recurse -File -Include *.ps1, *.cmd, *.mjs, *.cjs, *.js, *.py | Unblock-File -ErrorAction SilentlyContinue
-    Write-Good 'Program files copied'
+    if ($bundle -ine $InstallRoot) { Write-Good 'Program files copied' } else { Write-Good 'Program files left as they are (Repair does not replace them)' }
 
     $log = Join-Path $paths.Logs 'install.log'
     if ($hadInstall) { Write-Warn2 'Updating: the Node.js packages are removed and downloaded again. If that download fails, the Hub stays unusable until Setup is run again (Setup.cmd, or the Repair shortcut).' }
