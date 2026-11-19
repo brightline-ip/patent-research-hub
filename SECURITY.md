@@ -50,3 +50,20 @@ folders (`data/` and `exports/` by default, or `PATENT_RESEARCH_DATA_DIR` / `PAT
 software has no telemetry and sends nothing anywhere except the provider requests you ask for. There is no
 application-level encryption of local files; protect them with your operating system's access controls, and do not
 send client-confidential material to a provider unless your obligations permit it.
+
+## Windows installer (Setup.cmd)
+
+- Installs per user with no administrator rights: program files in `%LOCALAPPDATA%\Brightline\PatentResearchHub`, data in
+  a separate `%LOCALAPPDATA%\Brightline\PatentResearchHub-Data`. It installs no service, scheduled task or background process.
+- Node.js and Python are installed through winget only after an explicit yes; no command-line flag approves it.
+  npm packages come from `package-lock.json` with `npm ci --omit=dev --ignore-scripts` (exact versions and the lockfile's
+  integrity hashes). The optional chart packages come from PyPI, version-pinned in `requirements.txt`, wheels only.
+- Setup never asks for or prints a key. It creates an empty `keys.env` in the data folder and restricts it, and the data
+  folder, to your account before writing anything into them. The `Hub.cmd` wrapper, the Check shortcut and the MCP
+  snippets load it with Node's `--env-file-if-exists`; keys then reach the Hub as environment variables, as before.
+  Any program running as your Windows account can read the file.
+- Setup refuses FAT/exFAT and network folders, paths containing `"`, `%` or `!`, over-long paths, overlapping program
+  and data folders, and non-empty folders it did not create. Marker files limit the uninstaller to folders Setup created;
+  it unlinks junctions without following them, stops only Hub processes whose command line or executable is inside this
+  program folder, and keeps the data folder unless you choose `-RemoveData` or answer yes.
+- Setup edits no MCP client configuration.

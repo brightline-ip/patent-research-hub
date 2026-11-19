@@ -1,0 +1,93 @@
+PATENT RESEARCH HUB - GETTING STARTED
+=====================================
+
+Program folder: {{ROOT}}
+Data folder:    {{DATA}}
+
+The data folder holds your saved research (data\research.sqlite and related folders), exported
+reports (exports\), your settings (config.json) and your keys file (keys.env). It is readable only
+by your Windows account, and the uninstaller keeps it unless you choose to delete it.
+
+
+1. CHECK WHAT WORKS
+-------------------
+Start menu > Patent Research Hub - Check. Sources without a key show "not configured" with the
+name of the missing setting and the page where you register. The keyless sources (Federal Circuit
+opinions, PTAB index pages, USPTO notices, the reference library) work straight away.
+
+
+2. ADD KEYS (ALL OPTIONAL)
+--------------------------
+Keys go in this file, and only here:
+
+    {{KEYS}}
+
+Open it in Notepad (Start menu > Patent Research Hub - Data folder, then right-click keys.env,
+Open with, Notepad), paste each value after its = sign with no quotes, save, and run the Check
+again. Never paste a key into chat or into a tool argument.
+
+  USPTO_API_KEY                       USPTO Open Data Portal     https://data.uspto.gov/apis/getting-started
+  EPO_OPS_CONSUMER_KEY and _SECRET    EPO Open Patent Services   https://developers.epo.org/user/register
+  GOVINFO_API_KEY                     GovInfo (api.data.gov)     https://www.govinfo.gov/api-signup
+  COURTLISTENER_TOKEN                 CourtListener              https://free.law/membership/allowed-api-usage/
+  GOOGLE_APPLICATION_CREDENTIALS      BigQuery: full path of your Google credential JSON file
+  BIGQUERY_PROJECT_ID                 BigQuery: your own Google Cloud project ID
+
+Cost: registering for the USPTO, EPO OPS, GovInfo and CourtListener keys is free; each provider sets
+its own terms, quotas and allowed uses, which you must follow. Google BigQuery bills by data scanned
+on a project with billing enabled. The Hub ships in dry-run mode: it asks BigQuery only for free
+byte estimates and runs no data query until you change config.json yourself. Read
+{{ROOT}}\docs\BIGQUERY_SETUP.md first.
+
+CourtListener also needs two settings in config.json set to true after you read the Free Law
+Project terms: courtlistenerEnabled and courtlistenerInternalUseAllowed.
+
+What leaves your computer: nothing until you use a source. Then your query terms, application or
+patent numbers and that provider's key are sent to that provider only, over HTTPS. Saved records,
+reports and your keys file stay on this computer. Do not send client-confidential material to a
+provider unless your obligations permit it.
+
+Settings file: {{CONFIG}}
+(The options are explained in the README, section Configuration.)
+
+
+3. CONNECT AN AI ASSISTANT
+--------------------------
+Setup wrote two files in the program folder. It did not change any assistant's configuration.
+
+  Claude Desktop:  Settings > Developer > Edit Config. Copy the "patent_research" entry from
+                   {{ROOT}}\MCP-setup.json
+                   into the "mcpServers" section of claude_desktop_config.json, save, and restart
+                   Claude Desktop.
+  Claude Code:     copy the same "patent_research" entry into the "mcpServers" section of a
+                   project's .mcp.json file (or your user configuration).
+  Codex:           add the lines from
+                   {{ROOT}}\MCP-setup.codex.toml
+                   to %USERPROFILE%\.codex\config.toml
+
+The entry loads your keys from keys.env, so no key is written into any assistant's settings.
+Allow a generous tool timeout (about 4 minutes) for BigQuery and original-document tools.
+
+
+4. COMMAND LINE
+---------------
+    "{{ROOT}}\Hub.cmd" doctor
+    "{{ROOT}}\Hub.cmd" refresh --source cafc
+    "{{ROOT}}\Hub.cmd" search --query "obviousness"
+
+Hub.cmd with no arguments lists every command.
+
+
+5. REPAIR, UPDATE, UNINSTALL
+----------------------------
+Repair (Start menu) reinstalls the npm packages and keeps your data, settings and keys. To update,
+run Setup.cmd from a newer download. Uninstall removes the program folder and shortcuts and keeps
+the data folder unless you choose to delete it.
+
+
+DOCUMENTATION
+-------------
+  {{ROOT}}\README.md
+  {{ROOT}}\docs\           (BIGQUERY_SETUP.md, PATENTSVIEW.md, REFERENCE_LIBRARY.md and more)
+  {{ROOT}}\DISCLAIMER.md   Output is not legal advice; check it against the official record.
+  {{ROOT}}\SECURITY.md

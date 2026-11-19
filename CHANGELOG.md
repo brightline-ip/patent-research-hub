@@ -2,11 +2,12 @@
 
 ## Unreleased — security review fixes and ported fixes
 
-- Original documents: the size limit for USPTO application originals (reexamination requests, third-party affidavits) and GovInfo court-opinion PDFs is raised from 10 MB to 40 MB on the direct transport, the client checks and the n8n workflows alike. The bounded downloader lets application originals run for up to 180 s (was 60 s); PTAB decisions stay at 10 MB and 60 s. The n8n custom node and the portable \pplication-pdf-core\ workflow match.
-- Office Action rejections (n8n route): a provider reply without a \{response}\ object (for example an HTML error page) is now a 502, not a 200; the field list \{fields:[...]}\ stays a 200. The core workflow uses separate records (POST) and fields (GET) HTTP nodes with literal method, body and content type.
-- n8n transport: an https gateway is accepted only on the host named in the new \
-8nRemoteHost\ setting (empty by default; loopback http is otherwise the only option). The base URL must be a bare origin.
-- n8n build scripts: the application-pdf core build writes LF line endings; \uild-live-govinfo-core.mjs --refresh-pack\ re-applies the package code to an already patched core.
+- Windows installer: `Setup.cmd` installs per user under `%LOCALAPPDATA%\Brightline\PatentResearchHub` with no administrator rights, offers Node.js LTS (required) and Python 3.12 (optional) through winget only after a yes, runs `npm ci --omit=dev` from the lockfile, and keeps a separate user-only data folder with `config.json` (BigQuery in dry-run mode) and an empty `keys.env`. It writes MCP snippets for Claude Desktop, Claude Code and Codex without editing any client configuration, and adds Check, Data folder, Documentation, Repair and Uninstall shortcuts. Repair keeps data, settings and keys; Uninstall keeps the data folder unless asked. `-DryRun` and `-SimulateMissing` preview it.
+- Fixed escape-damaged code spans in this changelog.
+- Original documents: the size limit for USPTO application originals (reexamination requests, third-party affidavits) and GovInfo court-opinion PDFs is raised from 10 MB to 40 MB on the direct transport, the client checks and the n8n workflows alike. The bounded downloader lets application originals run for up to 180 s (was 60 s); PTAB decisions stay at 10 MB and 60 s. The n8n custom node and the portable `application-pdf-core` workflow match.
+- Office Action rejections (n8n route): a provider reply without a `{response}` object (for example an HTML error page) is now a 502, not a 200; the field list `{fields:[...]}` stays a 200. The core workflow uses separate records (POST) and fields (GET) HTTP nodes with literal method, body and content type.
+- n8n transport: an https gateway is accepted only on the host named in the new `n8nRemoteHost` setting (empty by default; loopback http is otherwise the only option). The base URL must be a bare origin.
+- n8n build scripts: the application-pdf core build writes LF line endings; `build-live-govinfo-core.mjs --refresh-pack` re-applies the package code to an already patched core.
 
 - BigQuery reconciliation removed from MCP (operator CLI only; explicit `--actual-bytes`, `--force-zero` to go below the estimate); `maxRequestsPerHour` per keyed provider; staged originals always use the intake directory; example examiner name replaced; trusted-config notes for dynamic module loading; `release-status` no longer fails on a fresh data directory.
 

@@ -44,7 +44,46 @@ statistics).
 - Optional: Python 3 with `requirements.txt` (matplotlib) for report charts and PatentsView preparation.
 - Optional: your own provider credentials (table above). Nothing is needed for the keyless sources.
 
-## Install
+## Install on Windows (easiest)
+
+1. Download `patent-research-hub-0.1.0.zip` from the release page and check its SHA-256 against the value in the
+   release notes. In PowerShell: `Get-FileHash .\patent-research-hub-0.1.0.zip -Algorithm SHA256`
+2. Right-click the zip, choose **Extract All**, open the extracted folder and double-click **Setup.cmd**. The script
+   is not code-signed, so Windows SmartScreen may warn you; choose More info, Run anyway only if the checksum matched.
+3. Setup checks for Node.js (required) and Python (optional, only for report charts and PatentsView preparation).
+   If one is missing it explains why, shows the exact `winget` command and installs it only if you answer yes.
+   Both are free. No administrator rights, Docker or API key are needed.
+4. Setup copies the program to `%LOCALAPPDATA%\Brightline\PatentResearchHub`, runs `npm ci --omit=dev` from
+   `package-lock.json`, and creates a separate data folder, `%LOCALAPPDATA%\Brightline\PatentResearchHub-Data`, that
+   only your Windows account can read. It holds your database, exports, `config.json` (BigQuery stays in dry-run
+   mode) and an empty `keys.env`. Setup never asks for a key and changes no AI assistant's configuration.
+5. When it finishes, Setup runs the check and opens a getting-started guide. Sources without a key show
+   "not configured"; the keyless sources work straight away.
+
+Start Menu, folder **Patent Research Hub**:
+
+- **Check**: which sources are ready (setting names only, never key values; no network call).
+- **Data folder**: opens the data folder, where `keys.env` and `config.json` are.
+- **Documentation**: the getting-started guide (where keys go, how to connect an assistant).
+- **Repair**: reinstalls the npm packages; keeps your data, settings and keys.
+- **Uninstall**: removes the program and shortcuts; keeps the data folder unless you choose to delete it.
+
+**Keys.** Open `keys.env` from the data folder in Notepad, paste each value after its `=` sign, save, and run
+**Check**. Registering for the USPTO, EPO OPS, GovInfo and CourtListener keys is free (each provider sets its own
+terms and limits); BigQuery can cost money on a billing-enabled Google Cloud project, which is why the Hub only makes
+free dry-run estimates until you change `config.json`. Nothing leaves your computer until you use a source; then
+your query terms, document numbers and that provider's key go to that provider only.
+
+**AI assistants.** Setup writes `MCP-setup.json` (Claude Desktop, Claude Code) and `MCP-setup.codex.toml` (Codex)
+in the program folder. Merge the `patent_research` entry into your client's configuration yourself. The entry starts
+Node with `--env-file-if-exists=<data folder>\keys.env`, so keys stay in that one file and out of client settings.
+From a command prompt, `"%LOCALAPPDATA%\Brightline\PatentResearchHub\Hub.cmd" doctor` runs the CLI with the same
+folders and keys.
+
+Running Setup again repairs or updates the installation. `Setup.cmd -DryRun` shows what it would do without
+changing anything; `-InstallRoot`, `-DataRoot` and `-ShortcutFolder` choose other folders.
+
+## Install from source
 
 ```sh
 git clone <this repository> patent-research-hub
@@ -217,7 +256,13 @@ npm test        # offline: mocked providers, no network, no live services
 
 ## Uninstall
 
-Delete the install folder. Your data is in `<dataDir>` and `<exportsDir>` (inside the install folder unless you
+Installed with Setup.cmd: use **Patent Research Hub - Uninstall** in the Start Menu. It stops Hub processes started
+from this installation (for example by an AI assistant), removes the program folder and shortcuts, and keeps the data
+folder unless you answer yes to deleting it. From a script: `installer\remove.ps1 -KeepData -Yes` or
+`-RemoveData -Yes` in the program folder. Node.js and Python stay installed, and you remove the `patent_research`
+entry from your MCP client configuration yourself.
+
+Installed from source: delete the install folder. Your data is in `<dataDir>` and `<exportsDir>` (inside the install folder unless you
 set `PATENT_RESEARCH_DATA_DIR` / `PATENT_RESEARCH_EXPORTS_DIR`); delete those too if you no longer need them, and
 remove the `patent_research` entry from your MCP client configuration.
 
