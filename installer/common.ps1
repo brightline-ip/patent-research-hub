@@ -93,24 +93,29 @@ function Set-PrhUserOnly([string]$Path, [switch]$Folder) {
 }
 
 # Same result as Set-PrhUserOnly (inheritance off, one Allow entry: the current user, full control), written with ONE
-# Set-Acl call. For an existing file that already holds keys there is no moment when the old and new lists are mixed or
-# when inheritance is re-applied. The list is read back before returning.
+# write of the access list. For an existing file that already holds keys there is no moment when the old and new lists are
+# mixed or when inheritance is re-applied. Only the access section is loaded and written: Set-Acl with a whole descriptor
+# can demand the SeSecurityPrivilege that ordinary accounts do not hold. The list is read back before returning.
 function Set-PrhUserOnlyAcl([string]$Path, [switch]$Folder) {
     $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
-    if ($Folder) {
-        $acl = New-Object Security.AccessControl.DirectorySecurity
-        $rule = New-Object Security.AccessControl.FileSystemAccessRule($sid, [Security.AccessControl.FileSystemRights]::FullControl, ([Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'), [Security.AccessControl.PropagationFlags]::None, [Security.AccessControl.AccessControlType]::Allow)
-    } else {
-        $acl = New-Object Security.AccessControl.FileSecurity
-        $rule = New-Object Security.AccessControl.FileSystemAccessRule($sid, [Security.AccessControl.FileSystemRights]::FullControl, [Security.AccessControl.AccessControlType]::Allow)
-    }
-    $acl.SetAccessRuleProtection($true, $false)
-    $acl.AddAccessRule($rule)
-    try { Set-Acl -LiteralPath $Path -AclObject $acl -ErrorAction Stop }
-    catch { throw "Could not restrict the file or folder to your account. Make sure it is on an NTFS drive and belongs to your account, then run Setup again. ($($_.Exception.Message))" }
+    $access = [Security.AccessControl.AccessControlSections]::Access
+    $legacy = [bool][IO.File].GetMethod('GetAccessControl', [Type[]]@([string], [Security.AccessControl.AccessControlSections]))
+    try {
+        $acl = if (-not $legacy) { Get-Acl -LiteralPath $Path } elseif ($Folder) { [IO.Directory]::GetAccessControl($Path, $access) } else { [IO.File]::GetAccessControl($Path, $access) }
+        foreach ($existing in @($acl.GetAccessRules($true, $false, [Security.Principal.SecurityIdentifier]))) { $null = $acl.RemoveAccessRuleSpecific($existing) }
+        $acl.SetAccessRuleProtection($true, $false)
+        $rule = if ($Folder) {
+            New-Object Security.AccessControl.FileSystemAccessRule($sid, [Security.AccessControl.FileSystemRights]::FullControl, ([Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'), [Security.AccessControl.PropagationFlags]::None, [Security.AccessControl.AccessControlType]::Allow)
+        } else {
+            New-Object Security.AccessControl.FileSystemAccessRule($sid, [Security.AccessControl.FileSystemRights]::FullControl, [Security.AccessControl.AccessControlType]::Allow)
+        }
+        $acl.AddAccessRule($rule)
+        if (-not $legacy) { Set-Acl -LiteralPath $Path -AclObject $acl -ErrorAction Stop }
+        elseif ($Folder) { [IO.Directory]::SetAccessControl($Path, $acl) }
+        else { [IO.File]::SetAccessControl($Path, $acl) }
+    } catch { throw "Could not restrict the file or folder to your account. Make sure it is on an NTFS drive and belongs to your account, then run Setup again. ($($_.Exception.Message))" }
     $null = Assert-PrhUserOnly $Path
 }
-
 # Reads the access list back. Throws unless inheritance is off and the only principals that are allowed access are the
 # current user (what Setup sets) or, if someone added them, SYSTEM and Administrators (who can read the file anyway).
 # Deny rules are ignored: they can only narrow access. Returns the list of principals found, for the log.

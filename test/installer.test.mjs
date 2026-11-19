@@ -180,10 +180,15 @@ test('icacls failures give a plain message instead of a raw error, even under Er
   assert.match(r.stdout,/MESSAGE=Could not reset the access list of the file or folder\. Make sure the folder is on an NTFS drive/);assert.doesNotMatch(r.stdout,/NativeCommandError|NO-THROW/);
 });
 
-test('an existing keys.env gets a protected, user-only access list in one Set-Acl step, and the read-back agrees',{skip},()=>{
+test('an existing keys.env gets a protected, user-only access list in one step (also when already protected), and the read-back agrees',{skip},()=>{
   const file=path.join(scratch,'acl-existing.env'),folder=path.join(scratch,'acl-existing-folder');fs.writeFileSync(file,'KEY=');fs.mkdirSync(folder,{recursive:true});
   const common=path.join(repo,'installer','common.ps1');
   const script=`. '${common}'
+$null = & icacls.exe '${file}' /grant '*S-1-5-32-545:R'
+$null = & icacls.exe '${folder}' /grant '*S-1-5-32-545:(OI)(CI)R'
+Set-PrhUserOnlyAcl '${file}'
+Set-PrhUserOnlyAcl '${folder}' -Folder
+# Again, now that both are already protected (the Repair case): a whole-descriptor Set-Acl fails here with a SeSecurityPrivilege error.
 $null = & icacls.exe '${file}' /grant '*S-1-5-32-545:R'
 $null = & icacls.exe '${folder}' /grant '*S-1-5-32-545:(OI)(CI)R'
 Set-PrhUserOnlyAcl '${file}'
