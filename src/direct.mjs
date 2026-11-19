@@ -109,6 +109,7 @@ export async function googleAccessToken(options={}){
 }
 
 // ---- Source routes: uspto, ptab, govinfo, courtlistener, epo, public ----
+const GOVINFO_PDF_TIMEOUT_MS=180000;  // up to 40 MB over a slow link; matches the application-original deadline
 const MAX_ORIGINAL_BYTES=40*1024*1024;  // GovInfo opinion PDFs and USPTO application originals; same limit as the n8n workflows
 function isGovinfoPdf(url){return /^https:\/\/api\.govinfo\.gov\/packages\/[^/]+\/granules\/[^/]+\/pdf$/.test(url);}
 async function sourceRoute(route,body,ctx,maxBytes){
@@ -125,7 +126,7 @@ async function sourceRoute(route,body,ctx,maxBytes){
   const send=async()=>{
     if(route==='epo')headers.Authorization='Bearer '+await epoAccessToken(ctx);
     await pace(provider||'public',ctx);
-    return request(validated.url,{method:validated.method,body:validated.method==='POST'?validated.body:undefined,headers:validated.method==='POST'?{'Content-Type':'application/json',...headers}:headers,timeout:pdf?60000:ctx.config.requestTimeoutMs,maxBytes:pdf?MAX_ORIGINAL_BYTES+1:Math.min(maxBytes||6e6,6e6),fetchImpl:ctx.fetchImpl,allowHttpError:true,binary:pdf});
+    return request(validated.url,{method:validated.method,body:validated.method==='POST'?validated.body:undefined,headers:validated.method==='POST'?{'Content-Type':'application/json',...headers}:headers,timeout:pdf?GOVINFO_PDF_TIMEOUT_MS:ctx.config.requestTimeoutMs,maxBytes:pdf?MAX_ORIGINAL_BYTES+1:Math.min(maxBytes||6e6,6e6),fetchImpl:ctx.fetchImpl,allowHttpError:true,binary:pdf});
   };
   let r=await send();
   // A cached EPO token can be revoked early; renew it once for this idempotent GET.

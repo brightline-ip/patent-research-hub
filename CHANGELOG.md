@@ -1,19 +1,20 @@
 # Changelog
 
-## Unreleased — security review fixes and ported fixes
+## 0.1.0 — 2026-11-19
+
+First public release.
 
 - Windows installer: `Setup.cmd` installs per user under `%LOCALAPPDATA%\Brightline\PatentResearchHub` with no administrator rights, offers Node.js LTS (required) and Python 3.12 (optional) through winget only after a yes, runs `npm ci --omit=dev` from the lockfile, and keeps a separate user-only data folder with `config.json` (BigQuery in dry-run mode) and an empty `keys.env`. It writes MCP snippets for Claude Desktop, Claude Code and Codex without editing any client configuration, and adds Check, Data folder, Documentation, Repair and Uninstall shortcuts. Repair keeps data, settings and keys; Uninstall keeps the data folder unless asked. `-DryRun` and `-SimulateMissing` preview it.
-- Fixed escape-damaged code spans in this changelog.
+- Review fixes (installer): Uninstall from the Start Menu now works (the shortcuts no longer start inside the program folder, and the uninstaller leaves it before deleting); the data deletion you chose no longer depends on the program-folder result, and the last lines state whether each folder was deleted or kept. `Hub.cmd` is written as UTF-8 and runs under code page 65001, so folders with non-ASCII names work. Setup reads the access lists back and stops unless only your account, SYSTEM and Administrators have access; it refuses a download folder and program folder that contain one another; it asks (default no) before stopping running Hub processes; it warns that a failed package download during an update leaves the Hub unusable until Setup is run again, and no longer says nothing outside the Hub's folders changed when winget installed something.
+- Review fixes (reports): report tools no longer require Python. Without Python and matplotlib the report is still exported (JSON, Markdown, HTML, CSV, dataset) with a warning and no chart; the renderer is checked before any BigQuery call, the warning is the first field of the result, no empty export folder is left after a failure, and the chart process receives no provider keys.
+- Review fixes (reliability): staged originals are written to a temporary name and renamed, and a damaged staged file is replaced instead of blocking the original for good; the SQLite database waits up to 5 s for another Hub process instead of failing at once; omitted download deadlines default to 180 s for application originals (the bounded downloader and the n8n custom node), GovInfo opinion PDFs get 180 s; the model proxy no longer crashes when no models are configured.
+- Documentation: 36 MCP tools; `n8nRemoteHost`, CPC scheme lookups and GovInfo opinion PDFs described accurately; Patent Genius integration; the Context Forge requirement of PatentsView intake; no retention or pruning; `--env-file` does not override existing variables; PyPI packages are version-pinned, not hash-pinned.
 - Original documents: the size limit for USPTO application originals (reexamination requests, third-party affidavits) and GovInfo court-opinion PDFs is raised from 10 MB to 40 MB on the direct transport, the client checks and the n8n workflows alike. The bounded downloader lets application originals run for up to 180 s (was 60 s); PTAB decisions stay at 10 MB and 60 s. The n8n custom node and the portable `application-pdf-core` workflow match.
 - Office Action rejections (n8n route): a provider reply without a `{response}` object (for example an HTML error page) is now a 502, not a 200; the field list `{fields:[...]}` stays a 200. The core workflow uses separate records (POST) and fields (GET) HTTP nodes with literal method, body and content type.
 - n8n transport: an https gateway is accepted only on the host named in the new `n8nRemoteHost` setting (empty by default; loopback http is otherwise the only option). The base URL must be a bare origin.
 - n8n build scripts: the application-pdf core build writes LF line endings; `build-live-govinfo-core.mjs --refresh-pack` re-applies the package code to an already patched core.
 
 - BigQuery reconciliation removed from MCP (operator CLI only; explicit `--actual-bytes`, `--force-zero` to go below the estimate); `maxRequestsPerHour` per keyed provider; staged originals always use the intake directory; example examiner name replaced; trusted-config notes for dynamic module loading; `release-status` no longer fails on a fresh data directory.
-
-## 0.1.0 — 2026-10-23
-
-First public preview.
 
 - Direct transport (default): the Hub calls USPTO Open Data Portal, EPO OPS (OAuth client credentials with
   in-memory token caching), GovInfo, CourtListener and Google BigQuery itself, with credentials from environment

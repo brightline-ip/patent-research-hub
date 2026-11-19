@@ -5,8 +5,11 @@ page covers the module contracts other tools rely on and the optional integratio
 
 ## MCP and CLI
 
-See the README for the MCP registration snippet. Every MCP tool has a CLI equivalent in `src/cli.mjs` (run it with
-no arguments for the list). Both return JSON and make no model call. A tool whose provider is not configured returns
+See the README for the MCP registration snippet. Almost every MCP tool has a CLI equivalent in `src/cli.mjs` (run it
+with no arguments for the list). Four MCP tools have none: `research_report`, `research_checkpoint`,
+`research_resume` and `research_reference_pin`. The CLI also has administrative commands that are deliberately not MCP
+tools (for example `bigquery-reconcile` and the PatentsView preparation and intake commands). Both return JSON and make
+no model call. A tool whose provider is not configured returns
 a `not_configured` object (MCP: a normal result; CLI: exit code 2) naming the missing variables and the signup link.
 
 ## Stable gateway module (`src/gateway.mjs`)
@@ -33,16 +36,23 @@ caller cannot reach an arbitrary host, path or SQL text.
 
 ### Patent Genius
 
-The separate Patent Genius tool uses this module as an optional provider. Point it at the Hub with:
+Patent Genius is a separate Brightline IP tool that has not been published. It loads this Hub as an optional
+provider by directory: its `PG_HUB_ROOT` setting (alias `PG_TOOL_HUB_ROOT`) names the Hub's install directory, and
+Patent Genius imports several modules from that directory's `src/` folder with your user rights:
 
-```sh
-FRAME_GATEWAY_MODULE=/absolute/path/to/patent-research-hub/src/gateway.mjs
-```
+- `src/gateway.mjs`: `callGateway` and `readConfig`, to harvest USPTO search pages with ODP search bodies on the
+  `uspto` route (its frame scripts). Its `FRAME_GATEWAY_MODULE` setting can point at a replacement gateway module instead.
+- `src/patent-documents.mjs`: `patentDocumentInventory` and `acquirePatentDocumentOriginal`, to list and download
+  file-wrapper documents.
+- `src/hub.mjs`: the `Hub` class (`query`, `store.search`, `corpusSearch`) for live and local searches.
+- `src/release.mjs`: `releaseStatus`.
 
-Patent Genius imports `callGateway` and `readConfig` and calls the `uspto` route with ODP search bodies. The Hub then
-needs `USPTO_API_KEY` in Patent Genius's environment (direct transport) or a configured n8n gateway. This contract —
-the two exports, the `uspto` route body and the `{text, status, contentType}` envelope with a returned status — is
-kept stable across 0.1.x and is covered by `test/direct.test.mjs`.
+Provider keys stay in the Hub's environment (`USPTO_API_KEY` and so on, direct transport) or a configured n8n gateway;
+the Hub's data directory (`PATENT_RESEARCH_DATA_DIR`) holds what Patent Genius retrieves through it. We intend to keep
+the exports and call signatures above stable across 0.1.x. Only the gateway contract (the two exports, the `uspto`
+route body and the `{text, status, contentType}` envelope with a returned status) is exercised by this repository's
+tests (`test/direct.test.mjs`); the other imports are not covered here, so check Patent Genius's own notes after
+upgrading the Hub.
 
 ## Provider quotas
 
@@ -69,7 +79,10 @@ return `not_configured`; everything else works.
    folder, set `corpusIntakeRoot` to that folder.
 
 PatentsView intake (an administrative CLI step) similarly uses `RESEARCH_CORPUS_CLIENT` (or `corpusClientModule`),
-which must export a `CorpusClient` class, for example Get Files' `integrations/client.mjs`.
+which must export a `CorpusClient` class, for example Get Files' `integrations/client.mjs`. Intake checks that the
+corpus reports **Context Forge** as the normalizer of each document (its manifest `extractor` must start with
+`Context Forge /`), so use a Get Files corpus that normalizes with Context Forge; a corpus using any other normalizer is
+refused. See [PATENTSVIEW.md](PATENTSVIEW.md).
 
 The Hub and Get Files have been used together on the developers' machine, but this public pairing has not been
 re-verified end to end.

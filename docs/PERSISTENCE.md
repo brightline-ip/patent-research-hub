@@ -34,6 +34,10 @@ Interrupted BigQuery calls remain conservatively charged in the local monthly le
 
 The database backup does not include source-corpus originals, exported reports, provider datasets, or encrypted n8n credentials. Those have their own storage locations. Provider credentials live in your environment (or, on the n8n transport, in n8n's encrypted credential store) and are never part of a backup.
 
+## Retention
+
+The Hub never prunes anything. Response snapshots and records in `research.sqlite`, backups, recovery copies, checkpoints, staged originals, reference PDFs and exported reports are kept until you delete them. Only whole files (backups, checkpoints, exports) are safe to delete by hand; there is no command that trims rows or snapshots inside the database. Plan for the data folder to grow, and check its size from time to time.
+
 ## Source updates
 
 Official reference monitoring identifies candidates and preserves the selected version until a reviewed replacement is explicitly pinned. Hosted analytics query current provider tables when available and overwrite only the deterministic cache entry for the exact contract/input combination after table identity, response schema, row bounds and byte controls pass. The prior aggregate remains represented in completed reports and state backups.

@@ -6,7 +6,7 @@ import {hash} from './parsers.mjs';
 import {stageVerifiedRestore} from './backups.mjs';
 import {assertNoSensitiveText} from './security.mjs';
 export class Store{
-  constructor(root){mkdirSync(root,{recursive:true});this.root=root;this.file=path.join(root,'research.sqlite');this.db=new DatabaseSync(this.file);this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;
+  constructor(root){mkdirSync(root,{recursive:true});this.root=root;this.file=path.join(root,'research.sqlite');this.db=new DatabaseSync(this.file,{timeout:5000});this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;
     CREATE TABLE IF NOT EXISTS records(id TEXT PRIMARY KEY,source TEXT NOT NULL,title TEXT NOT NULL,excerpt TEXT NOT NULL,body TEXT NOT NULL,updated TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS records_source ON records(source);
     CREATE TABLE IF NOT EXISTS snapshots(id TEXT PRIMARY KEY,source TEXT NOT NULL,created TEXT NOT NULL,request TEXT NOT NULL,response TEXT NOT NULL);

@@ -78,7 +78,7 @@ function receive(url,{headers,expected,maxBytes,signal,requestImpl,lookupImpl,al
 }
 async function boundedDownload(expected,{apiKey,maxBytes,timeoutMs,requestImpl=https.request,lookupImpl=dns.lookup}={}){
   const ptab=expected.operation==='ptab',byteLimit=ptab?MAX_BYTES:MAX_APPLICATION_BYTES,timeLimit=ptab?PTAB_TIMEOUT_MS:APPLICATION_TIMEOUT_MS;
-  if(maxBytes===undefined)maxBytes=byteLimit;if(timeoutMs===undefined)timeoutMs=PTAB_TIMEOUT_MS;
+  if(maxBytes===undefined)maxBytes=byteLimit;if(timeoutMs===undefined)timeoutMs=timeLimit;
   if(typeof apiKey!=='string'||!apiKey||apiKey.length>4096||/[\r\n]/.test(apiKey))throw Error('USPTO credential is unavailable');
   if(!Number.isSafeInteger(maxBytes)||maxBytes<5||maxBytes>byteLimit||!Number.isSafeInteger(timeoutMs)||timeoutMs<1||timeoutMs>timeLimit)throw Error('Invalid download bounds');
   if(active>=MAX_ACTIVE)throw Error('Original downloader busy; resume later');

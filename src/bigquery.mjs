@@ -2,7 +2,7 @@ import {randomUUID} from 'node:crypto';
 import {externalAccess} from './external-access.mjs';
 import {callGateway,readConfig} from './gateway.mjs';
 import {hash} from './parsers.mjs';
-import {exportReport} from './reports.mjs';
+import {exportReport,probeChartRenderer} from './reports.mjs';
 
 export const bigQueryContractVersion=1;
 export const bigQueryPublicationTable='patents-public-data.patents.publications';
@@ -140,12 +140,13 @@ export function bigQueryTrendReportInput(trend){
  return {dataset,analysis};
 }
 
-export async function exportBigQueryTrendReport(trend,input={}){
+export async function exportBigQueryTrendReport(trend,input={},options={}){
  const {dataset,analysis}=bigQueryTrendReportInput(trend);
  const executionFact=trend.delivery?.mode==='local-validated-aggregate-cache'?`The tool served its locally persisted, SHA-256-checked aggregate saved at ${trend.delivery.cachedAt}; no hosted data query completed for this request. The aggregate remains tied to the ${trend.tableLastModifiedAt} hosted-table snapshot.`:trend.cacheHit?`BigQuery served this execution from its result cache and reported zero additional processed and billed bytes; the dry-run estimate remained ${trend.preflight.totalBytesProcessed} bytes.`:`BigQuery processed ${trend.totalBytesProcessed} bytes and reported ${trend.totalBytesBilled} billed bytes; the enforced per-query ceiling was ${trend.maximumBytesBilled} bytes.`;
  const ledgerFact=trend.delivery?.mode==='local-validated-aggregate-cache'?`The cached aggregate records a ${trend.budget.trackedMonth} tool-ledger value of ${trend.budget.trackedBytesAfter} of ${trend.budget.monthlyLimitBytes} bytes at its original acquisition; this is not a fresh usage reading.`:`The tool's conservative ${trend.budget.trackedMonth} ledger stands at ${trend.budget.trackedBytesAfter} of ${trend.budget.monthlyLimitBytes} bytes.`;
- const files=await exportReport({title:input.title||analysis.title,question:`How many distinct US publication numbers in ${trend.table} matched ${trend.parameters.cpc} by publication year from ${trend.parameters.from} through ${trend.parameters.to}?`,facts:[`The fixed aggregate query returned ${trend.series.reduce((n,x)=>n+x.count,0).toLocaleString('en-US')} year-count memberships across ${trend.series.length} calendar years.`,executionFact,ledgerFact,`Google reported the hosted publications table last modified at ${trend.tableLastModifiedAt}.`],inferences:[],openQuestions:['Dataset coverage and classification practices should be reviewed before treating changes as changes in inventive activity.'],analysis,dataset});
- return {trend,analysis,files};
+ const files=await exportReport({title:input.title||analysis.title,question:`How many distinct US publication numbers in ${trend.table} matched ${trend.parameters.cpc} by publication year from ${trend.parameters.from} through ${trend.parameters.to}?`,facts:[`The fixed aggregate query returned ${trend.series.reduce((n,x)=>n+x.count,0).toLocaleString('en-US')} year-count memberships across ${trend.series.length} calendar years.`,executionFact,ledgerFact,`Google reported the hosted publications table last modified at ${trend.tableLastModifiedAt}.`],inferences:[],openQuestions:['Dataset coverage and classification practices should be reviewed before treating changes as changes in inventive activity.'],analysis,dataset,renderer:options.renderer});
+ return {warnings:files.warnings,trend,analysis,files};
 }
 
-export async function queryBigQueryTrendReport(input,options={}){return exportBigQueryTrendReport(await queryBigQueryTrend(input,options),input);}
+// The chart renderer is probed before the provider call, so a missing Python is known (and reported) before any query runs; it never blocks the report.
+export async function queryBigQueryTrendReport(input,options={}){const renderer=(options.probeRenderer||probeChartRenderer)();return exportBigQueryTrendReport(await queryBigQueryTrend(input,options),input,{renderer});}

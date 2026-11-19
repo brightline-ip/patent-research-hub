@@ -1,7 +1,8 @@
 // CPC scheme lookups through the existing EPO OPS connector (route 'epo', OPS classification service): one class,
 // subclass or group with its descendants, parsed into a flat list in scheme order. No provider logic here: the request
-// goes through n8n (gatewaySource), which holds the EPO OAuth credential. Used to expand CPC seed symbols into exact
-// symbol sets without downloading the bulk scheme files.
+// goes through the configured transport (gatewaySource): the direct transport with your own EPO OPS key (the default),
+// or the optional n8n workflows, which hold the credential. Intended for expanding CPC seed symbols into exact symbol
+// sets without downloading the bulk scheme files. This is a module function only: no CLI command or MCP tool calls it.
 import {gatewaySource,readConfig} from './gateway.mjs';
 
 export const EPO_BASE='https://ops.epo.org/3.2/rest-services';

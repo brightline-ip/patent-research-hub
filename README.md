@@ -25,23 +25,28 @@ Read [DISCLAIMER.md](DISCLAIMER.md): output is not legal advice and must be chec
 | Court and Board decisions | Federal Circuit RSS (opinions/orders), PTAB precedential/informative index, PTAB statistics, Director Review pages | No |
 | Official notices | USPTO Official Gazette, e-FOIA reading rooms, examination guidance index | No |
 | USPTO Open Data Portal | Patent file-wrapper search, PTAB trial and ex parte appeal decisions, application document lists, identity-checked original PDFs | `USPTO_API_KEY` |
-| EPO Open Patent Services | Bibliographic lookup by EPODOC publication number; CPC scheme lookups | `EPO_OPS_CONSUMER_KEY` + `EPO_OPS_CONSUMER_SECRET` |
-| GovInfo | USCOURTS opinion search and opinion PDFs | `GOVINFO_API_KEY` |
+| EPO Open Patent Services | Bibliographic lookup by EPODOC publication number | `EPO_OPS_CONSUMER_KEY` + `EPO_OPS_CONSUMER_SECRET` |
+| GovInfo | USCOURTS opinion search | `GOVINFO_API_KEY` |
 | CourtListener | Opinion search (disabled by default; requires accepting Free Law Project terms) | `COURTLISTENER_TOKEN` + config |
 | Google BigQuery | Fixed CPC publication-year trend and hosted-PatEx examiner/art-unit outcome aggregates; **dry-run byte estimates by default** | `GOOGLE_APPLICATION_CREDENTIALS` + `BIGQUERY_PROJECT_ID` |
 | Reference library | MPEP chapters, 35 USC and 37 CFR consolidations, FRCP: a manifest of official URLs and SHA-256 pins plus a fetch command | No |
 | Local datasets | PatentsView annualized grant cohort (you download and prepare it), PatEx (via BigQuery) | No |
 | Link-only | WIPO PATENTSCOPE and IP Statistics, Google Patents, FreePatentsOnline, Patent Bots, Juristat, Patlytics | No automated retrieval |
 
+CPC scheme lookups (`src/epo-cpc.mjs`) and GovInfo opinion PDF download (`src/govinfo-pdf.mjs`) exist as module
+functions that other tools can import. No CLI command or MCP tool calls them, so they are not part of what the
+command line or an assistant can do today.
+
 Every retrieval is saved as an immutable response snapshot plus normalized records in a local SQLite database, so
-earlier results stay searchable offline. Reports are exported as JSON, Markdown and HTML (with CSV and charts for
-statistics).
+earlier results stay searchable offline. Reports are exported as JSON, Markdown and HTML (with CSV for statistics, and
+a chart when Python is available; without Python the report is still written, with a warning and no chart).
 
 ## Requirements
 
 - Node.js **24.13 or newer** (the Hub uses the built-in `node:sqlite` module). Windows, macOS or Linux; the
   developers use Windows, and other systems have not been tested.
-- Optional: Python 3 with `requirements.txt` (matplotlib) for report charts and PatentsView preparation.
+- Optional: Python 3.12 or newer with `requirements.txt` (matplotlib). Python is needed only for the **charts** in
+  reports and for PatentsView preparation. Reports still work without it: they are written with a warning and no chart.
 - Optional: your own provider credentials (table above). Nothing is needed for the keyless sources.
 
 ## Install on Windows (easiest)
@@ -50,7 +55,8 @@ statistics).
    release notes. In PowerShell: `Get-FileHash .\patent-research-hub-0.1.0.zip -Algorithm SHA256`
 2. Right-click the zip, choose **Extract All**, open the extracted folder and double-click **Setup.cmd**. The script
    is not code-signed, so Windows SmartScreen may warn you; choose More info, Run anyway only if the checksum matched.
-3. Setup checks for Node.js (required) and Python (optional, only for report charts and PatentsView preparation).
+3. Setup checks for Node.js (required) and Python (optional: charts in reports, which are still produced without it, and
+   PatentsView preparation).
    If one is missing it explains why, shows the exact `winget` command and installs it only if you answer yes.
    Both are free. No administrator rights, Docker or API key are needed.
 4. Setup copies the program to `%LOCALAPPDATA%\Brightline\PatentResearchHub`, runs `npm ci --omit=dev` from
@@ -65,8 +71,9 @@ Start Menu, folder **Patent Research Hub**:
 - **Check**: which sources are ready (setting names only, never key values; no network call).
 - **Data folder**: opens the data folder, where `keys.env` and `config.json` are.
 - **Documentation**: the getting-started guide (where keys go, how to connect an assistant).
-- **Repair**: reinstalls the npm packages; keeps your data, settings and keys.
-- **Uninstall**: removes the program and shortcuts; keeps the data folder unless you choose to delete it.
+- **Repair**: re-runs the npm package install only (it does not replace program files); keeps your data, settings and keys.
+- **Uninstall**: removes the program and shortcuts; keeps the data folder unless you choose to delete it. It ends by
+  saying whether the program folder and the data folder were deleted or kept.
 
 **Keys.** Open `keys.env` from the data folder in Notepad, paste each value after its `=` sign, save, and run
 **Check**. Registering for the USPTO, EPO OPS, GovInfo and CourtListener keys is free (each provider sets its own
@@ -77,11 +84,18 @@ your query terms, document numbers and that provider's key go to that provider o
 **AI assistants.** Setup writes `MCP-setup.json` (Claude Desktop, Claude Code) and `MCP-setup.codex.toml` (Codex)
 in the program folder. Merge the `patent_research` entry into your client's configuration yourself. The entry starts
 Node with `--env-file-if-exists=<data folder>\keys.env`, so keys stay in that one file and out of client settings.
+A variable that is already set in your Windows environment takes precedence: Node's `--env-file` does not override
+it, so a stale `USPTO_API_KEY` set elsewhere will win over the one in `keys.env`.
 From a command prompt, `"%LOCALAPPDATA%\Brightline\PatentResearchHub\Hub.cmd" doctor` runs the CLI with the same
 folders and keys.
 
 Running Setup again repairs or updates the installation. `Setup.cmd -DryRun` shows what it would do without
-changing anything; `-InstallRoot`, `-DataRoot` and `-ShortcutFolder` choose other folders.
+changing anything; `-InstallRoot`, `-DataRoot` and `-ShortcutFolder` choose other folders. If Hub processes from this
+installation are running (an AI assistant usually starts them), Setup explains and asks before stopping them (default:
+no). **An update replaces the program folder with the new download: anything you saved inside the program folder is
+deleted.** Keep your own files in the data folder or elsewhere. The program folder and the folder you extracted the
+download into must not contain one another; Setup refuses that before copying anything. If the package download fails
+during an update, the Hub is unusable until Setup is run again (Setup.cmd, or the Repair shortcut).
 
 ## Install from source
 
@@ -109,14 +123,15 @@ node src/cli.mjs references-fetch --source usc35                                
 ```
 
 To load keys from a local file: copy `.env.example` to `.env`, fill in what you have, and run
-`node --env-file=.env src/cli.mjs doctor`. `node src/cli.mjs` with no arguments lists every command.
+`node --env-file=.env src/cli.mjs doctor`. `--env-file` does not override a variable that is already set in your
+environment (the existing value wins). `node src/cli.mjs` with no arguments lists every command.
 
 A source without its key returns `{"status":"not_configured", "missing":[...], "register":"<signup link>"}`
 (CLI exit code 2) instead of failing.
 
 ## MCP client registration
 
-The MCP server speaks stdio and exposes 37 tools (`research_doctor`, `research_sources`, `research_query`,
+The MCP server speaks stdio and exposes 36 tools (`research_doctor`, `research_sources`, `research_query`,
 `research_refresh`, `research_search`, `research_record`, BigQuery, examiner, reference-library, report,
 checkpoint and backup tools). Example for Claude Desktop or any client that uses the `mcpServers` format — use
 absolute paths:
@@ -165,7 +180,7 @@ or the file named by `PATENT_RESEARCH_CONFIG`. Credentials are **only** read fro
 | `ptabOriginalsEnabled`, `patentDocumentsEnabled`, `patentDocumentOriginalsEnabled` | `true` | Allow the USPTO document list and identity-checked original downloads. |
 | `PATENT_RESEARCH_DATA_DIR` / `dataDir` | `<install>/data` | Local database, backups, checkpoints, staged originals, reference PDFs. |
 | `PATENT_RESEARCH_EXPORTS_DIR` / `exportsDir` | `<install>/exports` | Exported reports. |
-| `RESEARCH_PYTHON` / `pythonExecutable` | `.venv`, then Python on PATH | Charts and PatentsView preparation. |
+| `RESEARCH_PYTHON` / `pythonExecutable` | `.venv`, then Python on PATH | Charts in reports (optional; without Python the report has no chart and says so) and PatentsView preparation. |
 | `RESEARCH_GET_FILES_CLIENT` / `getFilesClientModule` | — | Optional [Get Files](docs/INTEGRATION.md) integration for archiving and full-text reading. |
 | `RESEARCH_CORPUS_CLIENT` / `corpusClientModule` | — | Optional corpus client for PatentsView intake. |
 | `corpusIntakeRoot` | `<dataDir>/intake` | Where verified originals are staged. |
@@ -221,6 +236,11 @@ Everything stays on your computer unless you call a provider:
 - `<dataDir>/patentsview` — PatentsView snapshots you prepare.
 - `<exportsDir>/<uuid>/` — exported reports.
 
+There is **no automatic retention or pruning**. Response snapshots, backups, checkpoints, staged originals and
+exported reports accumulate until you delete them yourself (the `backup` command never removes earlier backups).
+Check the data folder's size now and then, and delete old backup, export or checkpoint files yourself. The Hub has no
+command that prunes records or snapshots inside `research.sqlite`.
+
 No provider data, reference PDFs or credentials ship with the software.
 
 ## Security model
@@ -230,7 +250,10 @@ No provider data, reference PDFs or credentials ship with the software.
   `doctor` reports which variables are set, never their values. Error messages are redacted.
 - The Hub contacts only fixed HTTPS provider endpoints; caller input cannot choose a host, path or SQL text.
 - Retrieved text is untrusted data. Tool results label coverage limits; a search page is never a population.
-- The optional n8n transport requires a loopback n8n address and a bearer file you create.
+- The optional n8n transport requires a bearer file you create and talks to n8n over loopback http by default. The one
+  exception is an explicit opt-in: set `n8nRemoteHost` to the exact hostname of an n8n you operate and `n8nBaseUrl` to
+  `https://<that host>` (a bare origin). The gateway bearer token then travels over the network, so use it only for a
+  host you control. `n8nRemoteHost` is empty by default.
 - `getFilesClientModule`, `corpusClientModule` and their `RESEARCH_*` environment variables name JavaScript that the Hub imports
   and runs with your user rights: set them only in configuration you control (see [SECURITY.md](SECURITY.md).)
 - There is no application-level encryption of the local database; protect the data folder like any other
@@ -246,6 +269,11 @@ No provider data, reference PDFs or credentials ship with the software.
   release. Google Patents counts are publication counts, not filings or families.
 - The model proxy (`src/model-proxy.mjs`) and the PatentsView landscape form are n8n-only extras.
 - No licensed citator: later treatment of a decision is never checked.
+- Python packages in `requirements.txt` are version-pinned, not hash-pinned (the Windows installer installs wheels only,
+  `--only-binary=:all:`, but does not verify hashes). The npm packages are pinned by `package-lock.json` with hashes.
+- PatentsView cohort intake (`patentsview-intake`, `patentsview-install`) accepts a corpus only if its normalized
+  document names Context Forge as the normalizer (see [docs/PATENTSVIEW.md](docs/PATENTSVIEW.md)); any other corpus
+  client is refused.
 - Clean-machine installation on macOS and Linux has not been tested.
 
 ## Testing

@@ -46,9 +46,29 @@ test('USPTO redirects allow only the same document on its file host without API 
   assert.ok(stream.credentials.httpHeaderAuth);assert.equal(core.nodes.some(n=>n.type.endsWith('.httpRequest')),false);
 });
 
-test('Original staging preserves identical bytes and rejects an existing conflicting file',async()=>{
+test('Original staging preserves identical bytes and replaces a damaged staged file atomically',async()=>{
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'ptab-stage-'));
-  try{const file=await stageOriginal(bytes,sha,dir);assert.deepEqual(fs.readFileSync(file),bytes);assert.equal(await stageOriginal(bytes,sha,dir),file);fs.writeFileSync(file,'conflict');await assert.rejects(stageOriginal(bytes,sha,dir),/conflicts/);}finally{fs.rmSync(dir,{recursive:true,force:true});}
+  try{
+    const file=await stageOriginal(bytes,sha,dir);assert.deepEqual(fs.readFileSync(file),bytes);assert.equal(await stageOriginal(bytes,sha,dir),file);
+    // A truncated or damaged file under the verified hash name (for example from an interrupted earlier write) must not block the original for good.
+    fs.writeFileSync(file,'conflict');
+    assert.equal(await stageOriginal(bytes,sha,dir),file);assert.deepEqual(fs.readFileSync(file),bytes);
+    fs.writeFileSync(file,bytes.subarray(0,10));
+    assert.equal(await stageOriginal(bytes,sha,dir),file);assert.deepEqual(fs.readFileSync(file),bytes);
+    // No temporary file is left behind, and only the final name is in the intake folder.
+    assert.deepEqual(fs.readdirSync(path.dirname(file)),[path.basename(file)]);
+  }finally{fs.rmSync(dir,{recursive:true,force:true});}
+});
+test('Original staging never exposes a partial file under the final name and cleans up after a failed write',async()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'ptab-stage-'));
+  try{
+    const file=path.join(dir,'patent-research',sha+'.pdf');
+    // A directory occupying the final name makes the rename fail; the temporary file must not remain and nothing partial appears.
+    fs.mkdirSync(file,{recursive:true});
+    await assert.rejects(stageOriginal(bytes,sha,dir));
+    assert.ok(fs.statSync(file).isDirectory());
+    assert.deepEqual(fs.readdirSync(path.dirname(file)),[path.basename(file)]);
+  }finally{fs.rmSync(dir,{recursive:true,force:true});}
 });
 
 test('Archive links the queued job to its snapshot, later records extraction warnings, and avoids a second download',async()=>{

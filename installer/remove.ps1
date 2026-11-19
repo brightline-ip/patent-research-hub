@@ -88,7 +88,11 @@ try {
     }
     if (-not $Yes -and -not (Read-YesNo 'Remove Patent Research Hub now?' $false)) { Write-Info 'Nothing was changed.'; if (-not $Yes) { Read-Host 'Press Enter to close' | Out-Null }; exit 0 }
 
-    Set-Location -LiteralPath ([IO.Path]::GetTempPath())
+    # The shortcut may have started this process inside the program folder. Windows will not delete a folder that is
+    # a process's current directory, and Set-Location only changes PowerShell's own location, not the process's.
+    $safeDir = [IO.Path]::GetTempPath()
+    Set-Location -LiteralPath $safeDir
+    [Environment]::CurrentDirectory = $safeDir
     $n = Stop-PrhProcesses $root
     if ($n) { Write-Good "Stopped $n Hub process(es) from this installation"; Start-Sleep -Seconds 1 }
 
@@ -101,15 +105,27 @@ try {
         Write-Good 'Shortcuts removed'
     }
 
-    Remove-Tree $root
-    Write-Good 'Program files removed'
+    # The two deletions are independent: a program folder that cannot be removed never silently skips the data
+    # deletion you asked for, and each outcome is reported on its own.
+    $programGone = $false; $programError = $null
+    try { Remove-Tree $root; $programGone = $true } catch { $programError = $_.Exception.Message }
+    $dataGone = $false; $dataError = $null
     if ($RemoveData) {
-        Remove-Tree $dataRoot
-        Write-Good 'Data folder removed'
-    } elseif ($dataRoot) {
-        Write-Good "Your data was kept in $dataRoot"
+        try { Remove-Tree $dataRoot; $dataGone = $true } catch { $dataError = $_.Exception.Message }
     }
-    if ($config -and $config.created_parent) {
+    Write-Host ''
+    if ($programGone) { Write-Good "Program folder DELETED: $root" } else { Write-Bad "Program folder NOT deleted (still present): $root"; Write-Info "    $programError" }
+    if ($RemoveData) {
+        if ($dataGone) { Write-Good "Data folder DELETED: $dataRoot" } else { Write-Bad "Data folder NOT deleted (still present): $dataRoot"; Write-Info "    $dataError" }
+    } elseif ($dataRoot) {
+        Write-Good "Data folder KEPT (not deleted): $dataRoot"
+    }
+    if (-not $programGone -or ($RemoveData -and -not $dataGone)) {
+        Write-Info 'Close any program using files in the folders named above, then run the uninstaller again'
+        Write-Info '(or delete the folders yourself in File Explorer).'
+        $exit = 1
+    }
+    if ($programGone -and $config -and $config.created_parent) {
         $parent = Split-Path -Parent $root
         if ($parent -and (Test-Path -LiteralPath $parent) -and -not (Get-ChildItem -LiteralPath $parent -Force | Select-Object -First 1)) { Remove-Item -LiteralPath $parent -Force }
     }

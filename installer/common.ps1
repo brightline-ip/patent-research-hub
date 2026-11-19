@@ -77,8 +77,27 @@ function Get-PrhUserSid { return ('*' + [Security.Principal.WindowsIdentity]::Ge
 # Folder or file readable only by the current user. Raises if icacls fails.
 function Set-PrhUserOnly([string]$Path, [switch]$Folder) {
     $grant = if ($Folder) { (Get-PrhUserSid) + ':(OI)(CI)F' } else { (Get-PrhUserSid) + ':F' }
+    # /reset first: /grant:r alone leaves any extra explicit entry (for example one added by hand) in place.
+    $null = & icacls.exe $Path /reset 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "Could not reset the access list of $Path (icacls code $LASTEXITCODE)." }
     $null = & icacls.exe $Path /inheritance:r /grant:r $grant 2>&1
     if ($LASTEXITCODE -ne 0) { throw "Could not restrict $Path to your account (icacls code $LASTEXITCODE)." }
+    $null = Assert-PrhUserOnly $Path
+}
+
+# Reads the access list back. Throws unless inheritance is off and the only principals that are allowed access are the
+# current user, SYSTEM and Administrators (the same set the other Brightline installers accept). Deny rules are ignored:
+# they can only narrow access. Returns the list of principals found, for the log.
+function Assert-PrhUserOnly([string]$Path) {
+    $userSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    $allowed = @($userSid, 'S-1-5-18', 'S-1-5-32-544')
+    $acl = Get-Acl -LiteralPath $Path
+    $rules = @($acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]) | Where-Object { $_.AccessControlType -eq 'Allow' })
+    $extra = @($rules | Where-Object { $_.IdentityReference.Value -notin $allowed } | ForEach-Object { $_.IdentityReference.Value } | Sort-Object -Unique)
+    if (-not $acl.AreAccessRulesProtected) { throw "The access list of $Path still inherits permissions from its parent folder; it is not private to your account." }
+    if ($extra.Count) { throw "$Path can still be accessed by other accounts ($($extra -join ', ')). Setup stopped so no key is stored in it." }
+    if (-not @($rules | Where-Object { $_.IdentityReference.Value -eq $userSid }).Count) { throw "Your own account has no access to $Path after the permissions change." }
+    return @($rules | ForEach-Object { $_.IdentityReference.Value } | Sort-Object -Unique)
 }
 
 # Returns @{ Exe; Version } for Node.js at or above the version the Hub needs (node:sqlite).

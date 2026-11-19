@@ -1,7 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import {callGateway, readConfig} from './gateway.mjs';
 import {hash} from './parsers.mjs';
-import {exportReport} from './reports.mjs';
+import {exportReport, probeChartRenderer} from './reports.mjs';
 
 export const examinerTable = 'patents-public-data.uspto_oce_pair.application_data';
 export const examinerSourceUrl = 'https://www.uspto.gov/ip-policy/economic-research/research-datasets/patent-examination-research-dataset-public-pair';
@@ -337,16 +337,18 @@ export function examinerReportInput(trend) {
   return {dataset, analysis};
 }
 
-export async function exportExaminerReport(trend, input = {}) {
+export async function exportExaminerReport(trend, input = {}, options = {}) {
   const {dataset, analysis} = examinerReportInput(trend);
   const totalIssued = trend.series.reduce((sum, row) => sum + row.issued, 0), totalAbandoned = trend.series.reduce((sum, row) => sum + row.abandoned, 0), totalDisposed = totalIssued + totalAbandoned;
   const scopeLabel = trend.parameters.scope === 'examiner' ? `Examiner ${trend.parameters.value}` : `Art unit ${trend.parameters.value}`;
   const executionFact = trend.delivery?.mode==='local-validated-aggregate-cache' ? `The tool served its locally persisted, SHA-256-checked aggregate saved at ${trend.delivery.cachedAt}; no hosted data query completed for this request. The aggregate remains tied to the ${trend.tableLastModifiedAt} hosted-table snapshot.` : trend.cacheHit ? `BigQuery served the result from cache and reported zero additional processed and billed bytes; the dry-run estimate was ${trend.preflight.totalBytesProcessed} bytes.` : `BigQuery processed ${trend.totalBytesProcessed} bytes and reported ${trend.totalBytesBilled} billed bytes under the ${trend.maximumBytesBilled}-byte ceiling.`;
   const ledgerFact = trend.delivery?.mode==='local-validated-aggregate-cache' ? `The cached aggregate records a ${trend.budget.trackedMonth} tool-ledger value of ${trend.budget.trackedBytesAfter} of ${trend.budget.monthlyLimitBytes} bytes at its original acquisition; this is not a fresh usage reading.` : `The tool's conservative ${trend.budget.trackedMonth} ledger stands at ${trend.budget.trackedBytesAfter} of ${trend.budget.monthlyLimitBytes} bytes.`;
-  const files = await exportReport({title: input.title || analysis.title, question: `What issued and abandoned outcomes does the hosted PatEx snapshot report for ${scopeLabel} from ${trend.parameters.from} through ${trend.parameters.to}?`, facts: [`The query found ${totalIssued.toLocaleString('en-US')} issued and ${totalAbandoned.toLocaleString('en-US')} abandoned application outcomes, ${totalDisposed.toLocaleString('en-US')} total, under the stated PatEx filters.`, executionFact, `The hosted table reports a maximum filing date of ${trend.dataBounds.maxFilingDate}, maximum disposal date of ${trend.dataBounds.maxDisposalDate}, and table modification time of ${trend.tableLastModifiedAt}.`, `The date-quality filter excluded ${trend.dataQuality.invalidFilingDates} filing, ${trend.dataQuality.invalidIssueDates} issue, and ${trend.dataQuality.invalidAbandonDates} abandonment date values outside 1900 through the verified ${trend.dataBounds.dataCutoff} table snapshot across the eligible table population.`, ledgerFact], inferences: [], openQuestions: ['Compare the exact examiner identity against live ODP records before using this historical snapshot in a matter.', 'Use the newest USPTO PatEx bulk release if post-snapshot outcomes are material.'], analysis, dataset});
-  return {trend, analysis, files};
+  const files = await exportReport({title: input.title || analysis.title, question: `What issued and abandoned outcomes does the hosted PatEx snapshot report for ${scopeLabel} from ${trend.parameters.from} through ${trend.parameters.to}?`, facts: [`The query found ${totalIssued.toLocaleString('en-US')} issued and ${totalAbandoned.toLocaleString('en-US')} abandoned application outcomes, ${totalDisposed.toLocaleString('en-US')} total, under the stated PatEx filters.`, executionFact, `The hosted table reports a maximum filing date of ${trend.dataBounds.maxFilingDate}, maximum disposal date of ${trend.dataBounds.maxDisposalDate}, and table modification time of ${trend.tableLastModifiedAt}.`, `The date-quality filter excluded ${trend.dataQuality.invalidFilingDates} filing, ${trend.dataQuality.invalidIssueDates} issue, and ${trend.dataQuality.invalidAbandonDates} abandonment date values outside 1900 through the verified ${trend.dataBounds.dataCutoff} table snapshot across the eligible table population.`, ledgerFact], inferences: [], openQuestions: ['Compare the exact examiner identity against live ODP records before using this historical snapshot in a matter.', 'Use the newest USPTO PatEx bulk release if post-snapshot outcomes are material.'], analysis, dataset, renderer: options.renderer});
+  return {warnings: files.warnings, trend, analysis, files};
 }
 
 export async function queryExaminerReport(input, options = {}) {
-  return exportExaminerReport(await queryExaminerTrend(input, options), input);
+  // Probe the chart renderer before the provider call: a missing Python is reported, never fatal, and never found out after a paid query.
+  const renderer = (options.probeRenderer || probeChartRenderer)();
+  return exportExaminerReport(await queryExaminerTrend(input, options), input, {renderer});
 }

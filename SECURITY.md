@@ -23,7 +23,7 @@ credentials, client material or private data in a report. We aim to acknowledge 
 - **Nothing in retrieved content.** Provider responses, PDFs and web pages are treated as untrusted data: they are
   size-capped, schema-checked and never executed or followed as instructions.
 - **Optional integrations you configure.** A Get Files client module or corpus client named in configuration is
-  imported and run with your user rights. The optional n8n transport must be on a loopback address.
+  imported and run with your user rights. The optional n8n transport must be on a loopback address, unless you opt in to one remote https host by naming it exactly in `n8nRemoteHost` (empty by default; the base URL must be a bare `https://<that host>` origin and the gateway bearer token then crosses the network, so use it only for a host you control).
 - **Trusted configuration only: dynamic module loading.** `getFilesClientModule` / `RESEARCH_GET_FILES_CLIENT` and
   `corpusClientModule` / `RESEARCH_CORPUS_CLIENT` are imported as JavaScript with full user rights, and the path is not
   confined to the install folder (Get Files normally lives elsewhere). Set them only in `config.json` or an environment you
@@ -57,13 +57,17 @@ send client-confidential material to a provider unless your obligations permit i
   a separate `%LOCALAPPDATA%\Brightline\PatentResearchHub-Data`. It installs no service, scheduled task or background process.
 - Node.js and Python are installed through winget only after an explicit yes; no command-line flag approves it.
   npm packages come from `package-lock.json` with `npm ci --omit=dev --ignore-scripts` (exact versions and the lockfile's
-  integrity hashes). The optional chart packages come from PyPI, version-pinned in `requirements.txt`, wheels only.
+  integrity hashes). The optional chart packages come from PyPI, version-pinned in `requirements.txt`, wheels only; they
+  are not hash-pinned, so a compromised package index or account could serve different files under a pinned version.
 - Setup never asks for or prints a key. It creates an empty `keys.env` in the data folder and restricts it, and the data
-  folder, to your account before writing anything into them. The `Hub.cmd` wrapper, the Check shortcut and the MCP
+  folder, to your account before writing anything into them, then reads each access list back and stops if inheritance is
+  still on or any account other than yours, SYSTEM and Administrators can access it. The `Hub.cmd` wrapper, the Check shortcut and the MCP
   snippets load it with Node's `--env-file-if-exists`; keys then reach the Hub as environment variables, as before.
-  Any program running as your Windows account can read the file.
+  Any program running as your Windows account can read the file. A variable already set in your Windows environment
+  takes precedence over `keys.env` (Node's `--env-file` never overrides existing variables).
 - Setup refuses FAT/exFAT and network folders, paths containing `"`, `%` or `!`, over-long paths, overlapping program
   and data folders, and non-empty folders it did not create. Marker files limit the uninstaller to folders Setup created;
   it unlinks junctions without following them, stops only Hub processes whose command line or executable is inside this
-  program folder, and keeps the data folder unless you choose `-RemoveData` or answer yes.
+  program folder (and, during Setup or Repair, only after you answer yes; the default is no), and keeps the data folder
+  unless you choose `-RemoveData` or answer yes. Its final lines state whether each folder was deleted or kept.
 - Setup edits no MCP client configuration.

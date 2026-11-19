@@ -48,6 +48,8 @@ $SimulateMissing = @($SimulateMissing | ForEach-Object { $_ -split ',' } | ForEa
 foreach ($item in $SimulateMissing) { if ($item -notin @('Node', 'Python')) { throw "-SimulateMissing accepts Node and Python (got '$item')." } }
 if ($SimulateMissing.Count -and -not $DryRun) { throw '-SimulateMissing can only be used together with -DryRun.' }
 
+$script:WingetInstalled = @()
+
 function Get-WingetArgs([string]$Id) {
     return @('install', '--id', $Id, '--exact', '--source', 'winget', '--accept-source-agreements', '--accept-package-agreements')
 }
@@ -71,7 +73,7 @@ function Request-Program([string]$Name, [string]$Id, [string[]]$Why, [string]$Ma
     $code = $LASTEXITCODE
     Update-SessionPath
     # -1978335189 (0x8A15002B): already installed, no applicable upgrade.
-    if ($code -eq 0 -or $code -eq -1978335189) { return 'installed' }
+    if ($code -eq 0 -or $code -eq -1978335189) { $script:WingetInstalled += $Name; return 'installed' }
     Write-Bad "winget reported an error ($code) while installing $Name."
     return 'failed'
 }
@@ -94,7 +96,8 @@ function New-PrhShortcut([string]$Name, [string]$Target, [string]$Arguments, [st
     $s = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
     $s.TargetPath = $Target
     $s.Arguments = $Arguments
-    $s.WorkingDirectory = $InstallRoot
+    # Never the program folder: a process whose current directory is inside it blocks Uninstall and Repair from deleting it.
+    $s.WorkingDirectory = $env:SystemRoot
     $s.Description = $Description
     $s.IconLocation = "$env:SystemRoot\System32\$Icon"
     $s.Save()
@@ -147,6 +150,12 @@ try {
     }
     $hadInstall = Test-Path -LiteralPath $paths.Marker -PathType Leaf
     if ($bundle -ieq $InstallRoot -and -not $hadInstall) { throw 'Run Setup.cmd from the extracted download, not from inside the program folder.' }
+    # The program folder is mirrored from the download folder (files only in the program folder are deleted), so the
+    # two must not contain one another.
+    $dl = $bundle + '\'; $pf = $InstallRoot + '\'
+    if ($bundle -ine $InstallRoot -and ($dl.StartsWith($pf, [StringComparison]::OrdinalIgnoreCase) -or $pf.StartsWith($dl, [StringComparison]::OrdinalIgnoreCase))) {
+        throw "The download folder ($bundle) and the program folder ($InstallRoot) must be separate (neither inside the other), because Setup replaces the program folder's contents with the download. Move the extracted download elsewhere or choose another -InstallRoot."
+    }
     if (-not $hadInstall -and (Test-Path -LiteralPath $InstallRoot) -and (Get-ChildItem -LiteralPath $InstallRoot -Force | Select-Object -First 1)) {
         throw "$InstallRoot already has files that Setup did not put there. Choose an empty folder with -InstallRoot."
     }
@@ -180,7 +189,7 @@ try {
         $python = if ('Python' -in $SimulateMissing) { $null } else { Find-PrhPython }
         if (-not $python) {
             Write-Info 'Python 3.12 or newer was not found. It is OPTIONAL.'
-            $r = Request-Program 'Python 3.12 (optional)' 'Python.Python.3.12' @('Python is used only for charts in exported reports and for preparing the PatentsView dataset (see docs\PATENTSVIEW.md).', 'Everything else works without it. Python is free, open-source software.') 'https://www.python.org/downloads/windows/'
+            $r = Request-Program 'Python 3.12 (optional)' 'Python.Python.3.12' @('Python draws the charts in exported reports (reports are still produced without it, just with no chart) and prepares the PatentsView dataset (see docs\PATENTSVIEW.md).', 'Everything else works without it. Python is free, open-source software.') 'https://www.python.org/downloads/windows/'
             if ($r -eq 'installed') { $python = Find-PrhPython }
             if (-not $python -and $r -ne 'dryrun') { Write-Info 'Continuing without Python. Run Setup again later to add it.' }
         }
@@ -201,11 +210,16 @@ try {
     $running = if ($hadInstall) { @(Get-PrhProcesses $InstallRoot) } else { @() }
     if ($running.Count) {
         Write-Info "$($running.Count) Hub process(es) from this installation are running, probably started by an AI assistant."
-        if ($DryRun) { Write-Info '[dry run] Setup would stop them before updating (your assistant starts the Hub again when needed).' }
-        else {
+        Write-Info 'They hold files that Setup must replace, so they have to stop first. Stopping them ends them immediately (a search or'
+        Write-Info 'download in progress is cut off; saved records are not affected). Your AI assistant starts the Hub again when needed.'
+        Write-Info 'Only processes running files from this program folder are stopped; nothing else is touched.'
+        if ($DryRun) { Write-Info '[dry run] Setup would ask: Stop them now?' }
+        elseif (Read-YesNo 'Stop them now?' $false) {
             $null = Stop-PrhProcesses $InstallRoot
             Start-Sleep -Seconds 1
             Write-Good 'Stopped them so the files can be updated. Restart your AI assistant if it does not reconnect by itself.'
+        } else {
+            throw 'Setup did not change anything because the running Hub processes were left running. Quit your AI assistant (or let any running search finish), then run Setup again.'
         }
     } else { Write-Good 'None running' }
 
@@ -239,6 +253,7 @@ try {
     Write-Good 'Program files copied'
 
     $log = Join-Path $paths.Logs 'install.log'
+    if ($hadInstall) { Write-Warn2 'Updating: the Node.js packages are removed and downloaded again. If that download fails, the Hub stays unusable until Setup is run again (Setup.cmd, or the Repair shortcut).' }
     Push-Location -LiteralPath $InstallRoot
     $old = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
     try {
@@ -246,7 +261,10 @@ try {
         & $node.Npm ci --omit=dev --ignore-scripts --no-audit --no-fund --cache $paths.NpmCache *> $log
         $code = $LASTEXITCODE
     } finally { $ErrorActionPreference = $old; Pop-Location }
-    if ($code -ne 0) { throw "npm ci failed (code $code). Check your internet connection. Details: $log" }
+    if ($code -ne 0) {
+        $after = if ($hadInstall) { ' WARNING: npm removes the old packages before installing, so the Hub is UNUSABLE until the install succeeds. When your connection works, run Setup.cmd again from the download (or the "Patent Research Hub - Repair" shortcut). Your data, settings and keys were not touched.' } else { ' Run Setup again when your connection works.' }
+        throw "npm ci failed (code $code). Check your internet connection. Details: $log.$after"
+    }
     Write-Good 'Node.js packages installed from package-lock.json'
 
     if ($wantCharts) {
@@ -267,7 +285,11 @@ try {
     if (-not $hadData) {
         New-Item -ItemType Directory -Force -Path $DataRoot | Out-Null
         Set-PrhUserOnly $DataRoot -Folder
+        Write-Good 'Data folder created (access list read back: inheritance off, no account other than yours, SYSTEM and Administrators)'
         Write-Utf8NoBom $paths.DataMarker "Patent Research Hub data folder (database, exports, settings, keys). The uninstaller deletes it only if you ask.`r`n"
+    } else {
+        try { $null = Assert-PrhUserOnly $DataRoot }
+        catch { Write-Warn2 "Your existing data folder is not private to your account. Setup did not change it. $($_.Exception.Message)" }
     }
     New-Item -ItemType Directory -Force -Path $paths.Data | Out-Null
     New-Item -ItemType Directory -Force -Path $paths.Exports | Out-Null
@@ -303,21 +325,29 @@ try {
         Write-Good 'Keys file created, readable only by your account (empty: no keys are set)'
     } else {
         Set-PrhUserOnly $paths.Keys
-        Write-Good 'Existing keys file kept (access re-checked: your account only)'
+        Write-Good 'Existing keys file kept (access list re-applied and read back: inheritance off, no account other than yours, SYSTEM and Administrators)'
     }
 
     # Command-line wrapper with this installation's folders and keys file.
+    # Written as UTF-8 (no BOM) and run under code page 65001, so folders with accented or non-Latin characters work.
+    # The caller's code page is restored afterwards, and the Hub's exit code is passed on.
     $cmd = @(
         '@echo off',
         'rem Patent Research Hub command line for this installation. Example: Hub.cmd doctor',
         'setlocal',
+        'set "PRH_CP="',
+        'for /f "tokens=2 delims=:" %%a in (''chcp'') do set "PRH_CP=%%a"',
+        'chcp 65001 >nul',
         ('set "PATENT_RESEARCH_CONFIG=' + $paths.HubConfig + '"'),
         ('set "PATENT_RESEARCH_DATA_DIR=' + $paths.Data + '"'),
         ('set "PATENT_RESEARCH_EXPORTS_DIR=' + $paths.Exports + '"'),
         ('"' + $node.Exe + '" "--env-file-if-exists=' + $paths.Keys + '" "%~dp0src\cli.mjs" %*'),
+        'set "PRH_EXIT=%ERRORLEVEL%"',
+        'if defined PRH_CP chcp %PRH_CP% >nul',
+        'exit /b %PRH_EXIT%',
         ''
     ) -join "`r`n"
-    [IO.File]::WriteAllText($paths.HubCmd, $cmd, [Text.Encoding]::ASCII)
+    Write-Utf8NoBom $paths.HubCmd $cmd
 
     # MCP setup snippets. Keys stay in keys.env; the snippets hold only paths.
     $envBlock = [ordered]@{ PATENT_RESEARCH_CONFIG = $paths.HubConfig; PATENT_RESEARCH_DATA_DIR = $paths.Data; PATENT_RESEARCH_EXPORTS_DIR = $paths.Exports }
@@ -351,7 +381,7 @@ try {
         (New-PrhShortcut 'Patent Research Hub - Check' $PowerShellExe (Get-PsArgs 'check.ps1') 'Show which sources are ready (names only, never key values)' 'shell32.dll,23'),
         (New-PrhShortcut 'Patent Research Hub - Data folder' (Join-Path $env:SystemRoot 'explorer.exe') ('"' + $DataRoot + '"') 'Open your research data, settings and keys file' 'shell32.dll,3'),
         (New-PrhShortcut 'Patent Research Hub - Documentation' (Join-Path $env:SystemRoot 'System32\notepad.exe') ('"' + $paths.Guide + '"') 'Getting started: where keys go, MCP setup, documentation' 'shell32.dll,1'),
-        (New-PrhShortcut 'Patent Research Hub - Repair' $PowerShellExe (Get-PsArgs 'setup.ps1' '-Repair') 'Reinstall the program files and packages; keeps data, settings and keys' 'shell32.dll,238'),
+        (New-PrhShortcut 'Patent Research Hub - Repair' $PowerShellExe (Get-PsArgs 'setup.ps1' '-Repair') 'Re-runs the Node.js package install only (program files are not replaced); keeps data, settings and keys' 'shell32.dll,238'),
         (New-PrhShortcut 'Patent Research Hub - Uninstall' $PowerShellExe (Get-PsArgs 'remove.ps1') 'Remove Patent Research Hub' 'shell32.dll,31')
     )
     Write-Good "Shortcuts created in $ShortcutFolder"
@@ -379,7 +409,9 @@ try {
 } catch {
     Write-Host ''
     Write-Bad $_.Exception.Message
-    Write-Info 'Nothing outside the program folder, data folder and shortcuts was changed. You can fix the problem and run Setup again.'
+    if ($script:WingetInstalled.Count) { Write-Info ('Setup installed ' + ($script:WingetInstalled -join ' and ') + ' with winget before this error; that program stays installed.') }
+    $apart = if ($script:WingetInstalled.Count) { 'Apart from that, nothing' } else { 'Nothing' }
+    Write-Info "$apart outside the program folder, data folder and shortcuts was changed. You can fix the problem and run Setup again."
     $exit = 1
 }
 if ($Repair) { Read-Host 'Press Enter to close' | Out-Null }

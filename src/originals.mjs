@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import {createHash} from 'node:crypto';
+import {createHash,randomUUID} from 'node:crypto';
 export const MAX_PTAB_PDF_BYTES=10*1024*1024;
 
 // Also embedded in n8n: keep this independent of imports and browser globals.
@@ -61,7 +61,16 @@ export async function stageOriginal(bytes,sha256,intakeRoot,extension='pdf'){
   await fs.mkdir(directory,{recursive:true});
   if(path.resolve(await fs.realpath(directory)).toLowerCase()!==directory.toLowerCase())throw new Error('Research intake must not resolve through a junction');
   const target=path.join(directory,sha256+'.'+extension);
-  try{await fs.writeFile(target,bytes,{flag:'wx'});}catch(error){if(error.code!=='EEXIST')throw error;}
+  // An existing file with the right hash is kept. Anything else under this name (damaged, truncated by an interrupted
+  // write) is replaced. The new bytes go to a temporary name first and are renamed into place, so the final name never
+  // holds a partial file.
+  let intact=false;
+  try{intact=createHash('sha256').update(await fs.readFile(target)).digest('hex')===sha256;}catch(error){if(error.code!=='ENOENT'&&error.code!=='EISDIR')throw error;}
+  if(!intact){
+    const temporary=path.join(directory,'.'+sha256+'.'+randomUUID()+'.tmp');
+    try{await fs.writeFile(temporary,bytes,{flag:'wx'});await fs.rename(temporary,target);}
+    catch(error){await fs.rm(temporary,{force:true}).catch(()=>{});throw error;}
+  }
   if(path.resolve(await fs.realpath(target)).toLowerCase()!==target.toLowerCase()||createHash('sha256').update(await fs.readFile(target)).digest('hex')!==sha256)throw new Error('Staged original conflicts with the verified PDF');
   return target;
 }

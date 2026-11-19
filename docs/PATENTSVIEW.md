@@ -21,6 +21,8 @@ The annualized source contains disambiguated assignee **names**, not stable orga
 4. Submit **every** projected chunk to the optional corpus integration (`RESEARCH_CORPUS_CLIENT`, for example Get Files). Preserve original and normalized hashes, job IDs, extractor version and warnings. No LLM enrichment is involved.
 5. Import only after all corresponding live corpus receipts report successful, hash-matched normalization. Build a separate SQLite snapshot before changing the active pointer. Earlier snapshots remain available.
 
+Intake is strict about the normalizer: each chunk's corpus document must report an extractor that starts with `Context Forge /` and preserve non-whitespace characters (checked in `src/patentsview-intake.mjs`), and the import step requires the receipt's normalizer to be `source-corpus/context-forge` (`src/patentsview.mjs`). A corpus that normalizes with something else is refused, so use Get Files with Context Forge as its normalizer.
+
 The normalized text is for reuse and source context. Structured queries parse the exact hash-bound projection, not the normalizer's prose rendering. A successful normalization job is not independent verification of the source's assertions.
 
 ## Use
