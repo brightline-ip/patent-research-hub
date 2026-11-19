@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
+import {spawnSync} from 'node:child_process';
 import {isReservedDeviceName} from '../src/names.mjs';
 import {sessionKey,checkpoint,resume} from '../src/checkpoints.mjs';
 import {Store} from '../src/store.mjs';
@@ -132,4 +133,20 @@ test('an empty-string title counts as absent in the preflight (the export then u
   await preflightExport({title:''});await preflightExport({});await preflightExport({title:undefined});
   await assert.rejects(preflightExport({title:'   '}),/title must be 1 to 200/);
   assert.ok(!fs.readdirSync(exportsRoot).some(n=>n.startsWith('.write-test-')));
+});
+test('a config.json saved with a UTF-8 byte order mark (as some Notepad versions do) is read, and doctor still runs',async()=>{
+  const {readConfig}=await import('../src/config.mjs'),{parseJsonText,stripBom}=await import('../src/json-text.mjs');
+  assert.equal(stripBom('\uFEFF{"a":1}'),'{"a":1}');assert.deepEqual(parseJsonText('\uFEFF{"a":1}'),{a:1});assert.deepEqual(parseJsonText('{"a":1}'),{a:1});
+  const file=path.join(home,'bom-config.json');
+  fs.writeFileSync(file,Buffer.concat([Buffer.from([0xEF,0xBB,0xBF]),Buffer.from(JSON.stringify({googleBigQueryDryRunEnabled:true,maxRequestsPerHour:{uspto:7}}))]));
+  const config=readConfig({file});assert.equal(config.googleBigQueryDryRunEnabled,true);assert.equal(config.maxRequestsPerHour.uspto,7);
+  fs.writeFileSync(file,'{ not json');assert.throws(()=>readConfig({file}),/not valid JSON/);
+  // The command line: BOM config.json and a BOM keys.env (first line a comment, as Setup writes it) and a BOM dataset file.
+  const cfg=path.join(home,'bom-cli.json'),keys=path.join(home,'bom-keys.env');
+  fs.writeFileSync(cfg,'\uFEFF{"googleBigQueryDryRunEnabled":true}');fs.writeFileSync(keys,'\uFEFF# Patent Research Hub keys\nGOVINFO_API_KEY=fake-bom-value\n');
+  const cli=path.join(import.meta.dirname,'..','src','cli.mjs');
+  const r=spawnSync(process.execPath,['--no-warnings',`--env-file-if-exists=${keys}`,cli,'doctor'],{encoding:'utf8',env:{...process.env,PATENT_RESEARCH_CONFIG:cfg,PATENT_RESEARCH_DATA_DIR:path.join(home,'cli-data'),PATENT_RESEARCH_EXPORTS_DIR:path.join(home,'cli-exports')}});
+  assert.equal(r.status,0,r.stdout+r.stderr);const report=JSON.parse(r.stdout);
+  const gov=report.providers.find(p=>/GovInfo/.test(p.name));assert.equal(gov.configured,true,'a key on the first line after a BOM comment must still load');
+  assert.doesNotMatch(r.stdout,/fake-bom-value/);
 });

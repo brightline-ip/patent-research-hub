@@ -74,7 +74,7 @@ Start Menu, folder **Patent Research Hub**:
 - **Repair**: reinstalls the npm packages, may offer any missing prerequisite (Node.js, optional Python) with your yes,
   re-applies the protection on `keys.env`, refreshes the optional chart packages if the private `.venv` exists, and regenerates `Hub.cmd`, the MCP setup files, the getting-started guide
   and the shortcuts. It does not replace program files (run `Setup.cmd` from a newer download for that) and does not
-  touch your data, settings or key values.
+  touch your data, settings or key values. It does not open the guide in Notepad.
 - **Uninstall**: removes the program and shortcuts; keeps the data folder unless you choose to delete it. It ends by
   saying whether the program folder and the data folder were deleted or kept.
 

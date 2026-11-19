@@ -1,5 +1,6 @@
 // Configuration and install-relative locations. Nothing here contains or reads a secret: provider credentials are
 // read from environment variables at call time (see src/direct.mjs and .env.example).
+import {parseJsonText} from './json-text.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -42,7 +43,7 @@ export function configPath(env=process.env){return env.PATENT_RESEARCH_CONFIG?pa
 export function readConfig({env=process.env,file=configPath(env)}={}){
   let local={};
   if(fs.existsSync(file)){
-    try{local=JSON.parse(fs.readFileSync(file,'utf8'));}catch{throw new Error('config.json is not valid JSON; compare it with config.example.json');}
+    try{local=parseJsonText(fs.readFileSync(file,'utf8'));}catch{throw new Error('config.json is not valid JSON; compare it with config.example.json');}
     if(!local||typeof local!=='object'||Array.isArray(local))throw new Error('config.json must contain one JSON object');
   }
   const config={...configDefaults,...local,directMinIntervalMs:{...configDefaults.directMinIntervalMs,...(local.directMinIntervalMs||{})},maxRequestsPerHour:{...configDefaults.maxRequestsPerHour,...(local.maxRequestsPerHour||{})}};

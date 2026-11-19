@@ -1,9 +1,10 @@
 import fs from 'node:fs';
+import {parseJsonText} from './json-text.mjs';
 import path from 'node:path';
 import {verifyBackupManifest} from './backups.mjs';
 
 const root=path.resolve(import.meta.dirname,'..');
-const readJson=file=>JSON.parse(fs.readFileSync(file,'utf8'));
+const readJson=file=>parseJsonText(fs.readFileSync(file,'utf8'));
 
 export function releaseStatus({hub,rootPath=root}={}){
   const manifest=readJson(path.join(rootPath,'config','release.json'));

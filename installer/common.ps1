@@ -62,7 +62,8 @@ function Get-PrhPaths([string]$Root, [string]$DataRoot) {
 }
 
 function Read-PrhConfig([string]$Root) {
-    return (Get-Content -LiteralPath (Join-Path $Root 'installer.json') -Raw -Encoding UTF8 | ConvertFrom-Json)
+    # A leading byte order mark (some editors add one) is removed: ConvertFrom-Json would reject it.
+    return ((Get-Content -LiteralPath (Join-Path $Root 'installer.json') -Raw -Encoding UTF8).TrimStart([char]0xFEFF) | ConvertFrom-Json)
 }
 
 function Update-SessionPath {
@@ -406,6 +407,8 @@ function Save-PrhShortcut([string]$Folder, [string]$Name, [string]$Target, [stri
 # Checks, before anything is installed, that shortcuts can be created in $Folder (which may not exist yet): saves a test
 # shortcut through the same route and removes it again. Returns $null when it works, otherwise the reason.
 function Test-PrhShortcutFolder([string]$Folder, [string[]]$StagingCandidates) {
+    # An existing FILE anywhere on the path can never become a folder.
+    for ($p = $Folder; $p; $p = Split-Path -Parent $p) { if ([IO.File]::Exists($p)) { return "$p is a file, not a folder." } }
     $probeFolder = $Folder
     while ($probeFolder -and -not [IO.Directory]::Exists($probeFolder)) { $probeFolder = Split-Path -Parent $probeFolder }
     if (-not $probeFolder) { return "No part of the shortcut folder path exists." }

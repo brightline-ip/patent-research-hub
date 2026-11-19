@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import {parseJsonText} from './json-text.mjs';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
 import {pathToFileURL} from 'node:url';
@@ -18,7 +19,7 @@ export async function normalizePatentsViewCohort({manifestPath,install=false},{c
   if(relativeManifest.startsWith('..')||path.isAbsolute(relativeManifest)||(await fs.stat(resolvedManifest)).size>4*1024*1024)throw Error('PatentsView manifest must be in the public intake folder');
   manifestPath=resolvedManifest;
   if(!client){if(!clientModule)throw Error('PatentsView intake needs the optional corpus integration: set RESEARCH_CORPUS_CLIENT or corpusClientModule (see docs/INTEGRATION.md)');const module=await import(pathToFileURL(path.resolve(installRoot,clientModule)));client=new module.CorpusClient();}
-  const manifest=JSON.parse(await fs.readFile(manifestPath,'utf8'));
+  const manifest=parseJsonText(await fs.readFile(manifestPath,'utf8'));
   if(!Array.isArray(manifest.chunks)||!manifest.chunks.length||manifest.chunks.length>2000)throw Error('Invalid PatentsView chunk manifest');
   const receipts=[];
   for(const [index,chunk] of manifest.chunks.entries()){

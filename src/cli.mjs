@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import {parseJsonText} from './json-text.mjs';
 import {parseArgs} from 'node:util';
 import {Hub} from './hub.mjs';
 import {analyzeCpc} from './analysis.mjs';
@@ -24,7 +25,7 @@ try{
   let result;
   switch(p[0]){
     case 'patentsview-status':result=patentsViewStatus({dataRoot:patentsViewRoot});break;
-    case 'patentsview-query':result=queryPatentsView(v.file?JSON.parse(await fs.readFile(v.file,'utf8')):{assignee:v.query||undefined,cpcSection:v.cpc||undefined,limit:v.limit?Number(v.limit):50},{dataRoot:patentsViewRoot});break;
+    case 'patentsview-query':result=queryPatentsView(v.file?parseJsonText(await fs.readFile(v.file,'utf8')):{assignee:v.query||undefined,cpcSection:v.cpc||undefined,limit:v.limit?Number(v.limit):50},{dataRoot:patentsViewRoot});break;
     case 'patentsview-prepare':result=await preparePatentsView({zipPath:v.file,year:Number(v.from),outputDirectory:v.manifest,expectedZipSha256:v.id},{dataRoot:patentsViewRoot,python:pythonExecutable(hub.config)});break;
     case 'patentsview-intake':result=await normalizePatentsViewCohort({manifestPath:v.manifest},{dataRoot:patentsViewRoot,onProgress:p=>{if(p.completed===1||p.completed%20===0||p.completed===p.total)console.error(JSON.stringify(p));}});break;
     case 'patentsview-install':result=await normalizePatentsViewCohort({manifestPath:v.manifest,install:true},{dataRoot:patentsViewRoot});break;
@@ -59,7 +60,7 @@ try{
     case 'jobs':result=await hub.jobs((v.id||'').split(','));break;
     case 'passages':result=await hub.corpusSearch(v.query||'');break;
     case 'read-source':result=await hub.corpusRead(v.id,Number(v.offset||0));break;
-    case 'cpc':{const input=JSON.parse(await fs.readFile(v.file,'utf8'));const analysis=analyzeCpc(input,{cpc:v.cpc,from:Number(v.from),to:Number(v.to),unit:v.unit||'publication',dateBasis:v['date-basis']||'publication'});result={analysis,files:await exportReport({title:analysis.title,analysis,dataset:input})};break;}
+    case 'cpc':{const input=parseJsonText(await fs.readFile(v.file,'utf8'));const analysis=analyzeCpc(input,{cpc:v.cpc,from:Number(v.from),to:Number(v.to),unit:v.unit||'publication',dateBasis:v['date-basis']||'publication'});result={analysis,files:await exportReport({title:analysis.title,analysis,dataset:input})};break;}
     default:result={usage:['doctor','sources','release-status','backup','restore-stage --manifest BACKUP.manifest.json','patent-documents --application-number 18123456 --max-documents 25','patent-document-original --application-number 18123456 --document-id DOCUMENT_ID','refresh --source cafc','search --query patent','record --id RECORD_ID','query --source govinfo --query Alice','archive --id RECORD_ID [--retry]','jobs --id JOB_ID','passages --query patent','read-source --id DOCUMENT_ID --offset 0','bigquery-status','bigquery-estimate --cpc G06N --from 2024 --to 2024','bigquery-report --cpc G06N --from 2021 --to 2025','bigquery-usage [--id YYYY-MM]','bigquery-reconcile --id RESERVATION_ID --actual-bytes BYTES [--force-zero] --evidence "PROVIDER JOB HISTORY CHECK"','examiner-status','examiner-lookup --examiner Example','examiner-estimate --scope examiner --examiner "EXAMPLE, ALEX Q" --from 2010 --to 2016','examiner-report --scope art-unit --art-unit 3645 --from 2010 --to 2016','cpc --file DATA.json --cpc G06N --from 2021 --to 2025','references-fetch [--source mpep] [--id usc35]']};
   }
   if(result?.usage)result.usage.push('patentsview-status','patentsview-query --query robotics --cpc G --limit 20','patentsview-query --file FILTERS.json','patentsview-prepare --file ORIGINAL.zip --from 2025 --manifest NEW_PREPARED_DIRECTORY --id EXPECTED_ZIP_SHA256','patentsview-intake --manifest PREPARED/manifest.json','patentsview-install --manifest PREPARED/manifest.json');

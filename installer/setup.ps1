@@ -375,7 +375,7 @@ try {
         (New-PrhShortcut 'Patent Research Hub - Check' $PowerShellExe { Get-PsArgs 'check.ps1' } 'Show which sources are ready (names only, never key values)' 'shell32.dll,23'),
         (New-PrhShortcut 'Patent Research Hub - Data folder' (Join-Path $env:SystemRoot 'explorer.exe') { '"' + (Get-ShortcutPath $DataRoot) + '"' } 'Open your research data, settings and keys file' 'shell32.dll,3'),
         (New-PrhShortcut 'Patent Research Hub - Documentation' (Join-Path $env:SystemRoot 'System32\notepad.exe') { '"' + (Get-ShortcutPath $paths.Guide) + '"' } 'Getting started: where keys go, MCP setup, documentation' 'shell32.dll,1'),
-        (New-PrhShortcut 'Patent Research Hub - Repair' $PowerShellExe { Get-PsArgs 'setup.ps1' '-Repair' } 'Reinstalls the Node.js packages, re-applies key file protection, refreshes the optional chart packages if installed, and rewrites Hub.cmd, MCP files, guide and shortcuts; program files, data and keys are not replaced' 'shell32.dll,238'),
+        (New-PrhShortcut 'Patent Research Hub - Repair' $PowerShellExe { Get-PsArgs 'setup.ps1' '-Repair -NoOpen' } 'Reinstalls the Node.js packages, re-applies key file protection, refreshes the optional chart packages if installed, and rewrites Hub.cmd, MCP files, guide and shortcuts; program files, data and keys are not replaced' 'shell32.dll,238'),
         (New-PrhShortcut 'Patent Research Hub - Uninstall' $PowerShellExe { Get-PsArgs 'remove.ps1' } 'Remove Patent Research Hub' 'shell32.dll,31')
     ) | Where-Object { $_ }
     if ($shortcuts.Count -eq 5) { Write-Good "Shortcuts created in $ShortcutFolder" } else { Write-Warn2 "Only $($shortcuts.Count) of 5 shortcuts could be created. To remove the Hub later, run $(Join-Path $InstallRoot 'installer\remove.ps1')." }

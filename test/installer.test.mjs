@@ -364,3 +364,21 @@ test('Uninstall says the data folder is not present, rather than kept, when it n
   assert.equal(r.status,0,r.stdout+r.stderr);
   assert.match(r.stdout,/Data folder not present/);assert.doesNotMatch(r.stdout,/Data folder KEPT/);
 });
+test('a file anywhere on the shortcut folder path stops Setup before anything is created',{skip},()=>{
+  const bundle=stageDownload('dl-file');const blocker=path.join(scratch,'afile.txt');fs.writeFileSync(blocker,'x');
+  const r=run(['-File',path.join(bundle,'installer','setup.ps1'),'-DryRun','-NoOptional','-NoOpen','-InstallRoot',path.join(scratch,'fapp'),'-DataRoot',path.join(scratch,'fdat'),'-ShortcutFolder',path.join(blocker,'sc')]);
+  assert.equal(r.status,1,r.stdout+r.stderr);assert.match(r.stdout,/afile\.txt is a file, not a folder.*Nothing was installed/s);
+  assert.ok(!fs.existsSync(path.join(scratch,'fapp'))&&!fs.existsSync(path.join(scratch,'fdat')));
+  const direct=run(['-Command',`. '${path.join(repo,'installer','common.ps1')}'\n'R=[' + (Test-PrhShortcutFolder '${path.join(blocker,'a','b')}' @([IO.Path]::GetTempPath())) + ']'`]);
+  assert.match(direct.stdout,/R=\[.*is a file, not a folder/);
+});
+
+test('installer.json and Hub settings written with a byte order mark are read; the Repair shortcut does not open the guide',{skip},()=>{
+  const f=fakeInstall('bominstall');const json=fs.readFileSync(path.join(f.app,'installer.json'));
+  fs.writeFileSync(path.join(f.app,'installer.json'),Buffer.concat([Buffer.from([0xEF,0xBB,0xBF]),json]));
+  const r=run(['-Command',`. '${path.join(repo,'installer','common.ps1')}'\n$c = Read-PrhConfig '${f.app}'\n'DATA=' + $c.data_root`]);
+  assert.equal(r.status,0,r.stdout+r.stderr);assert.ok(r.stdout.includes('DATA='+f.data),r.stdout);
+  const rm=run(['-File',path.join(f.app,'installer','remove.ps1'),'-RemoveData','-Yes'],{cwd:os.tmpdir()});
+  assert.equal(rm.status,0,rm.stdout+rm.stderr);assert.ok(!fs.existsSync(f.data),'the BOM installer.json still names the data folder');
+  assert.match(fs.readFileSync(path.join(repo,'installer','setup.ps1'),'utf8'),/Get-PsArgs 'setup\.ps1' '-Repair -NoOpen'/);
+});
