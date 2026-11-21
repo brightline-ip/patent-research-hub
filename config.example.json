@@ -18,6 +18,9 @@
     "courtlistener": 120,
     "bigquery": 120
   },
+  "limiterMaxWaitMs": 1200000,
+  "limiterStaleLockMs": 30000,
+  "oaRejectionsAdapter": "legacy-rejections-v2",
 
   "courtlistenerEnabled": false,
   "courtlistenerInternalUseAllowed": false,

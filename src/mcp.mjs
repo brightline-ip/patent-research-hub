@@ -18,7 +18,7 @@ import {doctor} from './doctor.mjs';
 import {isReservedDeviceName} from './names.mjs';
 const hub=new Hub();
 const references=new ReferenceLibrary(hub);
-const server=new McpServer({name:'patent-research',version:'0.1.0'});
+const server=new McpServer({name:'patent-research',version:'0.2.0'});
 const patentsViewRoot=path.join(hub.dataRoot,'patentsview');
 function tool(name,description,schema,fn,readOnly=true){server.registerTool(name,{description,inputSchema:schema,annotations:{readOnlyHint:readOnly,destructiveHint:false,openWorldHint:true}},async args=>{try{return {content:[{type:'text',text:JSON.stringify(await fn(args))}]};}catch(e){if(e?.notConfigured)return {content:[{type:'text',text:JSON.stringify({...e.notConfigured,message:safeErrorMessage(e.message)})}]};return {isError:true,content:[{type:'text',text:safeErrorMessage(e.message)}]};}});}
 tool('research_doctor','Report which sources are configured for the selected transport, which environment variables or settings are missing (names only, never values), BigQuery cost mode and optional integrations. Makes no network call.',{},()=>doctor({config:hub.config,env:hub.env}));

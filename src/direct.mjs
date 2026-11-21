@@ -11,7 +11,11 @@ import {request} from './net.mjs';
 import {sources} from './sources.mjs';
 import {validateWorkflowSource} from './workflow-validation.mjs';
 import {requireProvider} from './providers.mjs';
-import {configDefaults} from './config.mjs';
+import {configDefaults,dataDir} from './config.mjs';
+import path from 'node:path';
+import {withProviderSlot,rateLimitWaitSeconds} from './limiter.mjs';
+import {selectOaAdapter} from './oa-adapter.mjs';
+import {packageSearchResponse} from './uspto-search-response.mjs';
 
 const bounded=createRequire(import.meta.url)('./bounded-download.cjs');
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -22,38 +26,48 @@ const EPO_TOKEN_URL='https://ops.epo.org/3.2/auth/accesstoken';
 
 // Same source-to-route mapping as the n8n gateway (gateway.mjs gatewaySource).
 export const routeForSource=source=>source==='odp'?'uspto':['ptab-trials','ptab-appeals'].includes(source)?'ptab':['govinfo','courtlistener','epo'].includes(source)?source:'public';
-const providerForRoute={uspto:'uspto',ptab:'uspto','ptab-files':'uspto','application-documents':'uspto','application-pdf':'uspto',govinfo:'govinfo',courtlistener:'courtlistener',epo:'epo','google-bigquery':'bigquery','google-bigquery-query':'bigquery','examiner-bigquery':'bigquery','examiner-bigquery-query':'bigquery'};
+const providerForRoute={uspto:'uspto',ptab:'uspto','ptab-files':'uspto','application-documents':'uspto','application-pdf':'uspto',govinfo:'govinfo',courtlistener:'courtlistener',epo:'epo','oa-rejections':'uspto','google-bigquery':'bigquery','google-bigquery-query':'bigquery','examiner-bigquery':'bigquery','examiner-bigquery-query':'bigquery'};
 function sourceUrls(route){
   const out={};
   for(const s of sources)if(!['external','reference'].includes(s.kind)&&routeForSource(s.id)===route)out[s.id]=s.url;
   return out;
 }
 
-// Conservative pacing: requests to one provider are spaced by config.directMinIntervalMs[provider]. State is kept per
-// fetch implementation so separate test doubles do not delay each other.
-const pacing=new WeakMap(),hourly=new WeakMap();
-// Per-process request-count limit (config.maxRequestsPerHour[provider]; 0 or absent = unlimited). This is a local
-// safeguard against runaway loops, not the provider's own quota; see docs/INTEGRATION.md for provider quotas.
-function enforceHourlyLimit(provider,{config,fetchImpl}){
-  const max=Number({...configDefaults.maxRequestsPerHour,...config.maxRequestsPerHour}[provider]??0);
-  if(!(max>0))return;
-  let state=hourly.get(fetchImpl);if(!state){state=new Map();hourly.set(fetchImpl,state);}
-  const now=Date.now(),recent=(state.get(provider)||[]).filter(t=>now-t<3600000);
-  if(recent.length>=max){state.set(provider,recent);throw new Error(`Local request limit reached for ${provider}: ${max} requests in the last hour (maxRequestsPerHour). Retry in about ${Math.ceil((recent[0]+3600000-now)/60000)} minute(s) or raise the limit in config.json if your provider quota allows it.`);}
-  recent.push(now);state.set(provider,recent);
+// Pacing and limits. Keyed providers (uspto, epo, govinfo, courtlistener, bigquery) go through the cross-process limiter in
+// limiter.mjs: one call at a time per key, minimum spacing (config.directMinIntervalMs[provider]), a request cap per hour
+// (config.maxRequestsPerHour[provider]) and a cooldown after HTTP 429, all kept in <dataDir>/limiter so separate Hub
+// processes share them. Keyless "public" pages keep a simple in-process spacing.
+const pacing=new WeakMap();
+const keyedProviders=new Set(['uspto','epo','govinfo','courtlistener','bigquery']);
+function providerKey(provider,env){
+  return {uspto:env.USPTO_API_KEY,epo:env.EPO_OPS_CONSUMER_KEY||env.EPO_ACCESS_TOKEN,govinfo:env.GOVINFO_API_KEY,courtlistener:env.COURTLISTENER_TOKEN,bigquery:env.GOOGLE_APPLICATION_CREDENTIALS}[provider]||'';
 }
 async function pace(provider,{config,fetchImpl}){
-  enforceHourlyLimit(provider,{config,fetchImpl});
   const ms=Number((config.directMinIntervalMs||configDefaults.directMinIntervalMs)[provider]??1000);
   if(!(ms>0))return;
   let state=pacing.get(fetchImpl);if(!state){state=new Map();pacing.set(fetchImpl,state);}
   const now=Date.now(),at=Math.max(now,state.get(provider)||0);state.set(provider,at+ms);
   if(at>now)await sleep(at-now);
 }
+// Runs fn(slot) for one provider call. slot.rateLimited(retryAfterHeader) must be called when the provider answers HTTP 429.
+async function limited(provider,ctx,fn){
+  if(!keyedProviders.has(provider)){await pace(provider||'public',ctx);return fn({rateLimited(){}});}
+  const {config,env}=ctx,intervals={...configDefaults.directMinIntervalMs,...(config.directMinIntervalMs||{})};
+  return withProviderSlot({
+    dir:ctx.limiterDir||path.join(dataDir(config,env.PATENT_RESEARCH_DATA_DIR?env:process.env),'limiter'),
+    provider,key:providerKey(provider,env),
+    max:Number({...configDefaults.maxRequestsPerHour,...(config.maxRequestsPerHour||{})}[provider]??0),
+    minIntervalMs:Number(intervals[provider]??1000),
+    staleMs:Number(config.limiterStaleLockMs)||30000,maxWaitMs:Number(config.limiterMaxWaitMs)||1200000,
+    ...(ctx.sleepImpl?{sleep:ctx.sleepImpl}:{}),
+  },fn);
+}
+const rateNote=(r,slot)=>{if(r.status===429){slot.rateLimited(r.retryAfter);return {retryAfterSeconds:rateLimitWaitSeconds(r.retryAfter)};}return {};};
+const rateLimitedError=(error,slot)=>{if(/\bHTTP 429\b/.test(String(error?.message)))slot.rateLimited(null);};
 
 function context(options={}){
   const config={...configDefaults,...(options.config||{})};
-  return {config,env:options.env||process.env,fetchImpl:options.fetchImpl||fetch,requestImpl:options.requestImpl,lookupImpl:options.lookupImpl,now:options.now||Date.now};
+  return {config,env:options.env||process.env,fetchImpl:options.fetchImpl||fetch,requestImpl:options.requestImpl,lookupImpl:options.lookupImpl,limiterDir:options.limiterDir,sleepImpl:options.sleep,now:options.now||Date.now};
 }
 
 // ---- OAuth token caches (in memory only; never written to disk or logs) ----
@@ -78,8 +92,7 @@ export async function epoAccessToken(options={},{refresh=false}={}){
   if(!key||!secret){if(ctx.env.EPO_ACCESS_TOKEN)return ctx.env.EPO_ACCESS_TOKEN;requireProvider('epo',ctx);}
   const cacheKey='epo:'+digest(key+'\n'+secret);
   if(!refresh){const hit=cached(cacheKey,ctx);if(hit)return hit;}
-  await pace('epo',ctx);
-  const body=await tokenRequest(EPO_TOKEN_URL,{grant_type:'client_credentials'},{Authorization:'Basic '+Buffer.from(key+':'+secret).toString('base64')},ctx);
+  const body=await limited('epo',ctx,slot=>tokenRequest(EPO_TOKEN_URL,{grant_type:'client_credentials'},{Authorization:'Basic '+Buffer.from(key+':'+secret).toString('base64')},ctx));
   return remember(cacheKey,body.access_token,body.expires_in,ctx);
 }
 
@@ -123,11 +136,12 @@ async function sourceRoute(route,body,ctx,maxBytes){
   if(route==='courtlistener')headers.Authorization='Token '+ctx.env.COURTLISTENER_TOKEN;
   if(route==='epo')headers.Accept=validated.url.includes('/classification/cpc/')?'application/cpc+xml':'application/exchange+xml';
   if(pdf)headers.Accept='application/pdf';
-  const send=async()=>{
+  const send=()=>limited(provider||'public',ctx,async slot=>{
     if(route==='epo')headers.Authorization='Bearer '+await epoAccessToken(ctx);
-    await pace(provider||'public',ctx);
-    return request(validated.url,{method:validated.method,body:validated.method==='POST'?validated.body:undefined,headers:validated.method==='POST'?{'Content-Type':'application/json',...headers}:headers,timeout:pdf?GOVINFO_PDF_TIMEOUT_MS:ctx.config.requestTimeoutMs,maxBytes:pdf?MAX_ORIGINAL_BYTES+1:Math.min(maxBytes||6e6,6e6),fetchImpl:ctx.fetchImpl,allowHttpError:true,binary:pdf});
-  };
+    const r=await request(validated.url,{method:validated.method,body:validated.method==='POST'?validated.body:undefined,headers:validated.method==='POST'?{'Content-Type':'application/json',...headers}:headers,timeout:pdf?GOVINFO_PDF_TIMEOUT_MS:ctx.config.requestTimeoutMs,maxBytes:pdf?MAX_ORIGINAL_BYTES+1:Math.min(maxBytes||6e6,6e6),fetchImpl:ctx.fetchImpl,allowHttpError:true,binary:pdf});
+    r.rateLimit=rateNote(r,slot);
+    return r;
+  });
   let r=await send();
   // A cached EPO token can be revoked early; renew it once for this idempotent GET.
   if(route==='epo'&&(r.status===401||r.status===403)&&ctx.env.EPO_OPS_CONSUMER_KEY){await epoAccessToken(ctx,{refresh:true});r=await send();}
@@ -138,14 +152,21 @@ async function sourceRoute(route,body,ctx,maxBytes){
     if(contentType!=='application/pdf'||bytes.length>MAX_ORIGINAL_BYTES||bytes.subarray(0,5).toString('ascii')!=='%PDF-')throw new Error('GovInfo original is oversized or is not a PDF');
     return {status:200,url:validated.url,contentType:'application/pdf',bytes:bytes.length,base64:bytes.toString('base64')};
   }
-  return {text:r.text,status:r.status,contentType:r.contentType};
+  // "No matching records" is an HTTP 404 from the ODP search API, not an error: turn it into a valid zero-count result, as
+  // the n8n workflow does (uspto-search-response.mjs). The status comes from the HTTP response; the body is only read for its
+  // message, and any other 404 keeps its status.
+  if(route==='uspto'&&r.status===404){
+    let parsed=null;try{parsed=JSON.parse(r.text);}catch{}
+    const packaged=packageSearchResponse({...(parsed&&typeof parsed==='object'&&!Array.isArray(parsed)?parsed:{}),code:404});
+    if(packaged.status===200)return packaged;
+  }
+  return {text:r.text,status:r.status,contentType:r.contentType,...r.rateLimit};
 }
 
 const referenceIndexes={'mpep-index':'https://www.uspto.gov/web/offices/pac/mpep/index.html','frcp-index':'https://www.uscourts.gov/forms-rules/current-rules-practice-procedure/federal-rules-civil-procedure','patent-guidance':'https://www.uspto.gov/patents/laws/patent-legal-administration'};
 async function referenceIndex(body,ctx){
   const url=referenceIndexes[body?.source];if(!url)throw new Error('Unknown official reference index');
-  await pace('public',ctx);
-  const r=await request(url,{timeout:ctx.config.requestTimeoutMs,fetchImpl:ctx.fetchImpl,allowHttpError:true});
+  const r=await limited('public',ctx,()=>request(url,{timeout:ctx.config.requestTimeoutMs,fetchImpl:ctx.fetchImpl,allowHttpError:true}));
   return {status:r.status,text:r.text,contentType:r.contentType};
 }
 
@@ -153,25 +174,37 @@ async function referenceIndex(body,ctx){
 // PTAB decisions keep 10 MiB / 60 s; application originals (reexamination requests, affidavits) get 40 MiB / 180 s (USPTO downloads can be slow).
 const downloadOptions=(ctx,application=false)=>({apiKey:ctx.env.USPTO_API_KEY,maxBytes:application?bounded.MAX_APPLICATION_BYTES:bounded.MAX_BYTES,timeoutMs:application?bounded.APPLICATION_TIMEOUT_MS:60000,...(ctx.requestImpl?{requestImpl:ctx.requestImpl}:{}),...(ctx.lookupImpl?{lookupImpl:ctx.lookupImpl}:{})});
 async function ptabFiles(body,ctx){
-  requireProvider('uspto',ctx);await pace('uspto',ctx);
-  return bounded.downloadPtabOriginal({trial_number:body?.trialNumber||'',appeal_number:body?.appealNumber||'',document_identifier:body?.documentIdentifier},downloadOptions(ctx));
+  requireProvider('uspto',ctx);
+  return limited('uspto',ctx,async slot=>{try{return await bounded.downloadPtabOriginal({trial_number:body?.trialNumber||'',appeal_number:body?.appealNumber||'',document_identifier:body?.documentIdentifier},downloadOptions(ctx));}catch(e){rateLimitedError(e,slot);throw e;}});
 }
 async function applicationPdf(body,ctx){
   requireProvider('uspto',ctx);
   if(body?.file_id||body?.format)throw new Error('File-form and XML-archive downloads are available only with the optional n8n transport in this release');
-  await pace('uspto',ctx);
-  const result=await bounded.downloadOriginal({application_number:body?.application_number,document_identifier:body?.document_identifier,...(body?.native_filename?{native_filename:body.native_filename}:{})},downloadOptions(ctx,true));
+  const result=await limited('uspto',ctx,async slot=>{try{return await bounded.downloadOriginal({application_number:body?.application_number,document_identifier:body?.document_identifier,...(body?.native_filename?{native_filename:body.native_filename}:{})},downloadOptions(ctx,true));}catch(e){rateLimitedError(e,slot);throw e;}});
   return {...result,file_id:null};
 }
 async function applicationDocuments(body,ctx){
   requireProvider('uspto',ctx);
   if(!/^\d{8}$/.test(body?.application_number||''))throw new Error('Public US application number must contain eight digits');
   const url='https://api.uspto.gov/api/v1/patent/applications/'+body.application_number+'/documents';
-  await pace('uspto',ctx);
-  const r=await request(url,{headers:{'X-API-KEY':ctx.env.USPTO_API_KEY,Accept:'application/json'},timeout:60000,maxBytes:8*1024*1024,fetchImpl:ctx.fetchImpl,allowHttpError:true});
-  if(r.status!==200)throw new Error('USPTO document list HTTP '+Number(r.status||0));
+  const r=await limited('uspto',ctx,async slot=>{const x=await request(url,{headers:{'X-API-KEY':ctx.env.USPTO_API_KEY,Accept:'application/json'},timeout:60000,maxBytes:8*1024*1024,fetchImpl:ctx.fetchImpl,allowHttpError:true});rateNote(x,slot);return x;});
+  if(r.status!==200)throw new Error('USPTO document list HTTP '+Number(r.status||0)+(r.status===429?`; wait at least ${rateLimitWaitSeconds(r.retryAfter)} s before retrying`:''));
   let parsed;try{parsed=JSON.parse(r.text);}catch{throw new Error('USPTO document list was not JSON');}
   return {application_number:body.application_number,source_url:url,retrieved_at:new Date().toISOString(),status:200,body:parsed};
+}
+
+// ---- Office action rejections (USPTO ODP) ----
+// {action:'records', application_numbers:[8-digit...], field?, start?, rows?} or {action:'fields'}. The adapter (oa-adapter.mjs)
+// builds the fixed-endpoint request and packages the answer: HTTP status from the response, fail closed on an unexpected shape.
+async function oaRejections(body,ctx){
+  requireProvider('uspto',ctx);
+  const adapter=selectOaAdapter(ctx.config),action=body?.action??'records',spec=adapter.buildRequest(body);
+  const r=await limited('uspto',ctx,async slot=>{
+    const x=await request(spec.url,{method:spec.method,...(spec.body?{body:spec.body}:{}),headers:{'X-API-KEY':ctx.env.USPTO_API_KEY,Accept:'application/json',...(spec.contentType?{'Content-Type':spec.contentType}:{})},timeout:ctx.config.requestTimeoutMs,maxBytes:8e6,fetchImpl:ctx.fetchImpl,allowHttpError:true});
+    x.rateLimit=rateNote(x,slot);
+    return x;
+  });
+  return {...adapter.packageResponse(action,r.status,r.text),...r.rateLimit};
 }
 
 // ---- Google BigQuery: fixed parameterized SQL only, dry run by default ----
@@ -184,8 +217,7 @@ function bigQueryProject(ctx){
   return projectId;
 }
 async function bigQueryCall(method,url,body,ctx){
-  const token=await googleAccessToken(ctx);await pace('bigquery',ctx);
-  const r=await request(url,{method,body,headers:{Authorization:'Bearer '+token,...(body?{'Content-Type':'application/json'}:{}),Accept:'application/json'},timeout:180000,maxBytes:2e6,fetchImpl:ctx.fetchImpl,allowHttpError:true});
+  const r=await limited('bigquery',ctx,async slot=>{const token=await googleAccessToken(ctx);const x=await request(url,{method,body,headers:{Authorization:'Bearer '+token,...(body?{'Content-Type':'application/json'}:{}),Accept:'application/json'},timeout:180000,maxBytes:2e6,fetchImpl:ctx.fetchImpl,allowHttpError:true});rateNote(x,slot);return x;});
   let parsed={};try{parsed=r.text?JSON.parse(r.text):{};}catch{parsed={};}
   return {statusCode:r.status,body:parsed};
 }
@@ -250,6 +282,7 @@ export async function directGateway(route,body,options={}){
     case 'uspto':case 'ptab':case 'govinfo':case 'courtlistener':case 'epo':case 'public':return sourceRoute(route,body,ctx,options.maxBytes);
     case 'reference-index':return referenceIndex(body,ctx);
     case 'ptab-files':return ptabFiles(body,ctx);
+    case 'oa-rejections':return oaRejections(body,ctx);
     case 'application-documents':return applicationDocuments(body,ctx);
     case 'application-pdf':return applicationPdf(body,ctx);
     case 'google-bigquery':return googleBigQueryDryRun(body,ctx);

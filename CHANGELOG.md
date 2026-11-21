@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.2.0 — 2026-11-20
+
+Public preview 0.2.0. Adds what Patent Genius 0.1.0 needs from the Hub. Offline-tested with mocked providers only; none of it
+has been run against the live USPTO API.
+
+- **Office-action rejections on the direct transport.** New `oa-rejections` route (provider `uspto`, `X-API-KEY`) behind a small
+  adapter (`src/oa-adapter.mjs`, setting `oaRejectionsAdapter`). It reuses the request validation of the n8n route
+  (8-digit application numbers only, fixed endpoint `.../oa_rejections/v2/records` and `/fields`). The status comes from the
+  HTTP response, and a reply without `response.numFound` and `response.docs` (or `fields`) is a 502, never zero records.
+  The USPTO marks this API legacy; the newer Office Action Search API is not implemented (its documentation could not be read
+  without signing in).
+- **Empty search windows.** The direct ODP search route turns the provider's HTTP 404 "no matching records" into a valid
+  zero-count result (`count: 0`, as the n8n workflow does); any other 404, other statuses and a 200 carrying that text are
+  unchanged.
+- **One call at a time per key, across processes.** New cross-process limiter (`src/limiter.mjs`, state in
+  `<dataDir>/limiter`): a lock held for the whole call that callers wait for (stale locks from dead or hung holders are taken
+  over), minimum spacing across processes, and `maxRequestsPerHour` now shared across processes (it was per process). Only a truly
+  exhausted cap fails, with the new error code `local_limit` and the wait time; waiting longer than the new
+  `limiterMaxWaitMs` fails with `local_busy`. New settings `limiterMaxWaitMs` and `limiterStaleLockMs`.
+- **HTTP 429.** Never retried at once. The Hub returns the 429 (with `retryAfterSeconds`) and holds the key back for every
+  process for at least 5 seconds, `Retry-After` if longer, doubling on repeats up to 15 minutes. The GET retry for 5xx is
+  unchanged; 429 is no longer retried by it.
+- **Key isolation for other tools.** New `Hub.cmd gateway <route> --json-in` (also `node src/cli.mjs gateway ...`): JSON request
+  on stdin, provider envelope on stdout, exit codes 0, 1, 2 (`not_configured`), 64, 75. The keys exist only in that child; no
+  module named by the environment (`FRAME_GATEWAY_MODULE`-style) is loaded; the Hub database is not opened. Documented as the
+  supported integration in `docs/INTEGRATION.md`. `src/cli.mjs` now dispatches to `src/cli-main.mjs` (the unchanged command line).
+- **Docs.** README, SECURITY and INTEGRATION describe the route, the limits and the USPTO portal rules (ID.me-verified key, one
+  call at a time per key, 4 to 15 requests per second, at least 5 seconds after a 429, keys unused for 90 days are deleted).
+- **Installer.** Robocopy in the uninstaller's folder removal and in Setup's program-file copy now runs with `/R:1 /W:1`: with
+  Robocopy's default (a million retries, 30 s apart) removing a program folder that a running process had open never finished.
+  Found because two installer tests hung until their timeout on Windows 11 build 26200.
+- Tests: new `limiter`, `gateway-cli`, `oa-direct` suites (including tests with several real processes) and a `Hub.cmd gateway`
+  installer test; `npm test` now loads `test/setup.mjs` so limiter state goes to a throwaway folder.
+
+### Upgrading from 0.1.0
+
+- Extract the new zip and run `Setup.cmd` again over the existing install: it replaces the program folder and `Hub.cmd` and keeps
+  your data folder, `config.json` and `keys.env` (Repair does not copy new program files). No setting needs to change.
+- `maxRequestsPerHour` now counts requests from all Hub processes that share the data folder, not just one process. A script that
+  stayed under 120 per process may now hit `local_limit`; raise the setting or wait.
+- Calls with the same key now take turns. A second process no longer runs in parallel; it waits (up to `limiterMaxWaitMs`).
+- A 429 is returned to the caller instead of being retried by the Hub's GET retry; wait at least 5 seconds before any retry.
+- A new `<dataDir>/limiter` folder appears. It holds counters and lock files (a salted hash of the key, never the key); it is safe to
+  delete while no Hub process is running.
+- Patent Genius 0.1.0 needs this version for `Hub.cmd gateway`.
+
 ## 0.1.0 — 2026-11-19
 
 First public preview release (public preview 0.1.0).

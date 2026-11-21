@@ -15,7 +15,10 @@ export const configDefaults=Object.freeze({
   exportsDir:'',                            // empty = <install>/exports; PATENT_RESEARCH_EXPORTS_DIR overrides
   requestTimeoutMs:25000,
   directMinIntervalMs:{uspto:1000,epo:1000,govinfo:3600,courtlistener:1000,bigquery:1000,public:1000},
-  maxRequestsPerHour:{uspto:120,epo:120,govinfo:120,courtlistener:120,bigquery:120}, // per provider, this process only; 0 = unlimited. Local safeguard, not the provider's quota
+  maxRequestsPerHour:{uspto:120,epo:120,govinfo:120,courtlistener:120,bigquery:120}, // per provider and key, shared by every Hub process using this data folder; 0 = unlimited. Local safeguard, not the provider's quota
+  limiterMaxWaitMs:1200000,                 // longest a call waits for its turn, the pacing gap or a 429 cooldown before failing with local_busy
+  limiterStaleLockMs:30000,                 // a call lock not refreshed for this long (holder died or hung) is taken over
+  oaRejectionsAdapter:'legacy-rejections-v2', // which USPTO service answers the oa-rejections route (src/oa-adapter.mjs)
   courtlistenerEnabled:false,               // CourtListener stays off until enabled AND terms acknowledged
   courtlistenerInternalUseAllowed:false,    // set true only after reading https://free.law/membership/allowed-api-usage/
   googleBigQueryProjectId:'',               // your own GCP project; BIGQUERY_PROJECT_ID overrides

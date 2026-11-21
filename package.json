@@ -1,6 +1,6 @@
 {
   "name": "patent-research-hub",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Deterministic patent and legal source-retrieval layer (MCP server and CLI) for IP practitioners.",
   "license": "Apache-2.0",
   "private": true,
@@ -10,7 +10,7 @@
   },
   "scripts": {
     "start": "node src/cli.mjs",
-    "test": "node --test test/*.test.mjs",
+    "test": "node --test --import ./test/setup.mjs test/*.test.mjs",
     "mcp": "node src/mcp.mjs",
     "doctor": "node src/cli.mjs doctor",
     "references:fetch": "node src/cli.mjs references-fetch",

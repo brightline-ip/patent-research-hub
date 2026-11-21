@@ -9,7 +9,7 @@ export const providers=Object.freeze({
     env:['USPTO_API_KEY'],
     register:'https://data.uspto.gov/apis/getting-started',
     terms:'https://data.uspto.gov/',
-    limits:'Per-key rate limits set by USPTO; the Hub spaces requests at least 1 s apart by default.',
+    limits:'USPTO allows one call at a time per key, about 4 to 15 requests per second, and asks for at least 5 s after an HTTP 429; the Hub takes turns across processes, spaces requests at least 1 s apart by default and holds the key back after a 429. An ID.me-verified account is needed, and a key unused for 90 days is deleted.',
   },
   epo:{
     name:'EPO Open Patent Services (OPS)',

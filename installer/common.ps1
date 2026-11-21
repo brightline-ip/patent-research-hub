@@ -12,7 +12,7 @@ if ($PSVersionTable.PSEdition -ne 'Core') {
 
 $script:PrhMarker = '.patent-research-hub-install'
 $script:PrhDataMarker = '.patent-research-hub-data'
-$script:PrhVersion = '0.1.0'
+$script:PrhVersion = '0.2.0'
 $script:PrhMinNode = [version]'24.13.0'
 
 function Write-Step([string]$Text) { Write-Host ''; Write-Host ('== ' + $Text) -ForegroundColor Cyan }
@@ -298,7 +298,7 @@ function Remove-Tree([string]$Path) {
             $empty = Join-Path ([IO.Path]::GetTempPath()) ('prh-empty-' + [Guid]::NewGuid().ToString('N'))
             New-Item -ItemType Directory -Path $empty | Out-Null
             $old = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
-            try { $null = & robocopy.exe $empty $Path /MIR /XJ /NFL /NDL /NJH /NJS /NP } finally { $ErrorActionPreference = $old }
+            try { $null = & robocopy.exe $empty $Path /MIR /XJ /R:1 /W:1 /NFL /NDL /NJH /NJS /NP } finally { $ErrorActionPreference = $old }
             Remove-Item -LiteralPath $empty -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction SilentlyContinue
         }

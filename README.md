@@ -1,6 +1,6 @@
 # Patent Research Hub
 
-**Public preview 0.1.0** — Apache-2.0. Published by Brightline IP.
+**Public preview 0.2.0** — Apache-2.0. Published by Brightline IP.
 
 Patent Research Hub retrieves public US patent and legal sources for an AI assistant or a script, keeps a local,
 provenance-tracked record of what it retrieved, and exports source-linked evidence packets. It is a
@@ -24,7 +24,7 @@ Read [DISCLAIMER.md](DISCLAIMER.md): output is not legal advice and must be chec
 | --- | --- | --- |
 | Court and Board decisions | Federal Circuit RSS (opinions/orders), PTAB precedential/informative index, PTAB statistics, Director Review pages | No |
 | Official notices | USPTO Official Gazette, e-FOIA reading rooms, examination guidance index | No |
-| USPTO Open Data Portal | Patent file-wrapper search, PTAB trial and ex parte appeal decisions, application document lists, identity-checked original PDFs | `USPTO_API_KEY` |
+| USPTO Open Data Portal | Patent file-wrapper search, PTAB trial and ex parte appeal decisions, application document lists, identity-checked original PDFs, office-action rejection records (the `oa-rejections` gateway route, see below) | `USPTO_API_KEY` |
 | EPO Open Patent Services | Bibliographic lookup by EPODOC publication number | `EPO_OPS_CONSUMER_KEY` + `EPO_OPS_CONSUMER_SECRET` |
 | GovInfo | USCOURTS opinion search | `GOVINFO_API_KEY` |
 | CourtListener | Opinion search (disabled by default; requires accepting Free Law Project terms) | `COURTLISTENER_TOKEN` + config |
@@ -51,8 +51,8 @@ a chart only when Python with matplotlib is available; without them the report i
 
 ## Install on Windows (easiest)
 
-1. Download `patent-research-hub-0.1.0.zip` from the release page and check its SHA-256 against the value in the
-   release notes. In PowerShell: `Get-FileHash .\patent-research-hub-0.1.0.zip -Algorithm SHA256`
+1. Download `patent-research-hub-0.2.0.zip` from the release page and check its SHA-256 against the value in the
+   release notes. In PowerShell: `Get-FileHash .\patent-research-hub-0.2.0.zip -Algorithm SHA256`
 2. Right-click the zip, choose **Extract All**, open the extracted folder and double-click **Setup.cmd**. The script
    is not code-signed, so Windows SmartScreen may warn you; choose More info, Run anyway only if the checksum matched.
 3. Setup checks for Node.js (required) and Python (optional: charts in reports, which are still produced without it, and
@@ -177,8 +177,11 @@ or the file named by `PATENT_RESEARCH_CONFIG`. Credentials are **only** read fro
 | `googleBigQueryBillingMode` | `disabled` | `sandbox-no-billing` (BigQuery sandbox, no billing account) or `billing-enabled-capped` (you accept possible charges up to the caps). |
 | `googleBigQueryPerQueryMaxBytes` | `26843545600` (25 GiB) | Sent as `maximumBytesBilled`; a dry-run estimate above it is refused before execution. |
 | `googleBigQueryMonthlyTrackedMaxBytes` | `274877906944` (256 GiB) | Calendar-month budget tracked locally for queries made by this tool only. |
-| `maxRequestsPerHour` | 120 per keyed provider (USPTO, EPO, GovInfo, CourtListener, BigQuery); 0 = unlimited | Local request-count limit per provider and process. Not the provider's own quota. |
-| `directMinIntervalMs` | USPTO/EPO/CourtListener/BigQuery/public 1000 ms, GovInfo 3600 ms | Minimum spacing between requests to one provider. |
+| `maxRequestsPerHour` | 120 per keyed provider (USPTO, EPO, GovInfo, CourtListener, BigQuery); 0 = unlimited | Local request-count limit per provider and key, **shared by every Hub process that uses the same data folder** (kept in `<dataDir>/limiter`). Not the provider's own quota. When it is used up, calls fail with the error code `local_limit` and the wait time. |
+| `limiterMaxWaitMs` | `1200000` (20 min) | The longest a call waits for its turn, the pacing gap or a 429 cooldown before it fails with `local_busy` and the wait time. |
+| `limiterStaleLockMs` | `30000` | A call lock that nobody has refreshed for this long (the holder died or hung) is taken over. |
+| `oaRejectionsAdapter` | `legacy-rejections-v2` | Which USPTO service answers the `oa-rejections` route. Only the legacy Rejections API is implemented. |
+| `directMinIntervalMs` | USPTO/EPO/CourtListener/BigQuery/public 1000 ms, GovInfo 3600 ms | Minimum spacing between request starts to one provider and key (across processes for keyed providers). |
 | `requestTimeoutMs` | `25000` | Per-request timeout (PTAB originals 60 s, application originals and BigQuery 180 s). |
 | `ptabOriginalsEnabled`, `patentDocumentsEnabled`, `patentDocumentOriginalsEnabled` | `true` | Allow the USPTO document list and identity-checked original downloads. |
 | `PATENT_RESEARCH_DATA_DIR` / `dataDir` | `<install>/data` | Local database, backups, checkpoints, staged originals, reference PDFs. |
@@ -190,8 +193,8 @@ or the file named by `PATENT_RESEARCH_CONFIG`. Credentials are **only** read fro
 
 Network behaviour on the direct transport: HTTPS only, fixed provider hosts and paths (the same validation the n8n
 workflows use), no redirects followed except the one identity-checked USPTO signed download, response size caps,
-timeouts, and retries with backoff (`Retry-After` honoured, at most 5 s) **only for idempotent GET requests**.
-POST searches and BigQuery calls are never retried.
+timeouts, and retries with backoff (`Retry-After` honoured, at most 5 s) **only for idempotent GET requests and only for
+HTTP 5xx**. POST searches and BigQuery calls are never retried. HTTP 429 is never retried at once: see the next section.
 
 ## BigQuery cost warning
 
@@ -212,10 +215,61 @@ project's billing state are your responsibility**. The Hub therefore:
 Use a BigQuery sandbox project (no billing account) if you want a hard stop. See
 [docs/BIGQUERY_SETUP.md](docs/BIGQUERY_SETUP.md) and [Google's pricing page](https://cloud.google.com/bigquery/pricing).
 
+## USPTO key rules and the Hub's limits
+
+The Open Data Portal publishes its rules at [data.uspto.gov/apis/getting-started](https://data.uspto.gov/apis/getting-started)
+and [data.uspto.gov/apis/api-rate-limits](https://data.uspto.gov/apis/api-rate-limits) (read 2026-11-20; the portal says
+its limits are subject to change, so check them yourself). In our own words:
+
+- **Getting and keeping a key.** A key needs a USPTO.gov account with multi-factor sign-in and an identity verified through
+  ID.me (applicants outside the US verify on a video call). One key per account; do not share it. **A key that is not used
+  for 90 days is deleted** and has to be requested again, so an idle Hub can find its key gone.
+- **One call at a time per key.** The portal blocks concurrent calls made with the same key.
+- **Rate.** Roughly 4 to 15 requests per second depending on the kind of call. There are also weekly quotas (millions of
+  metadata calls, fewer document downloads, reset on Sunday 00:00 UTC) that are far above what this tool does; we do not
+  promise figures because the portal can change them.
+- **After an HTTP 429** ("too many requests"): wait at least 5 seconds before trying again, and never retry automatically
+  sooner.
+
+What the Hub does about it, for every keyed provider (USPTO, EPO, GovInfo, CourtListener, BigQuery):
+
+- **One call at a time per key, across processes.** A lock file in `<dataDir>/limiter` is held for the whole call, so the MCP
+  server, the command line and `gateway` children started by other tools take turns. A caller that finds the key busy
+  **waits** for its turn; it does not fail. A lock whose holder died, or that has not been refreshed for
+  `limiterStaleLockMs`, is taken over. The key itself is never written there (files are named by a salted hash).
+- **Spacing and an hourly cap.** `directMinIntervalMs` (1 s for USPTO by default, far below the published rate) and
+  `maxRequestsPerHour` (120 by default) apply across processes. Only when the hourly cap is really used up does a call fail,
+  with the error code `local_limit` and the wait time in the message (`retry_after_seconds` in the `gateway` command).
+- **After a 429** the Hub returns the 429 to the caller (with `retryAfterSeconds`) and holds the key back, for every process,
+  for at least 5 seconds, for as long as `Retry-After` says if that is longer, and twice as long after each further 429
+  in a row (at most 15 minutes). The next call waits that out, or fails with `local_busy` and the wait time if waiting
+  would exceed `limiterMaxWaitMs`.
+- The locks are advisory and local to one data folder on one computer. They do not stop another program or another
+  computer using the same key.
+
+## Office-action rejection records
+
+The `oa-rejections` route (direct transport, `USPTO_API_KEY`) asks the USPTO Office Action Rejection API (v2) which
+statutory rejections (101, 102, 103, 112, double patenting) appear in the office actions of up to 100 applications at a
+time, identified by their **8-digit application numbers only**. The endpoint is fixed, the search criteria are built by
+the Hub, and the answer's HTTP status is taken from the HTTP response. A reply that does not have the documented shape is
+an error (502), never "zero records". The records have no examiner name and no cited-reference identities, and the
+coverage start and the reporting lag are not fixed: compute them from the data. The USPTO marks this API **legacy**; the
+code sits behind a small adapter (`src/oa-adapter.mjs`) so a move to the newer Office Action Search API is a contained
+change, but that API is not implemented (see [docs/INTEGRATION.md](docs/INTEGRATION.md#office-action-rejections-and-the-legacy-api)).
+It is reachable through the module gateway and the `gateway` command below, not through an MCP tool or a CLI query command.
+
+## Using the Hub from another tool (`gateway` command)
+
+Another program can use the Hub's provider access without ever holding your keys: it starts
+`Hub.cmd gateway <route> --json-in` (or `node src/cli.mjs gateway <route> --json-in`) as a short-lived child, writes one
+JSON request to stdin and reads one JSON document from stdout. `Hub.cmd` loads `keys.env` for the child only. See
+[docs/INTEGRATION.md](docs/INTEGRATION.md#gateway-command-the-supported-way-for-other-tools).
+
 ## Provider terms
 
 Each user registers for and uses their own credentials and must follow each provider's terms and rate limits. The Hub spaces
-requests (`directMinIntervalMs`) and stops at `maxRequestsPerHour` per provider (default 120, this process only); both are
+requests (`directMinIntervalMs`) and stops at `maxRequestsPerHour` per provider and key (default 120, shared by all Hub processes on one data folder); both are
 local safeguards, not your provider's quota (see [docs/INTEGRATION.md](docs/INTEGRATION.md#provider-quotas)):
 [USPTO Open Data Portal](https://data.uspto.gov/apis/getting-started),
 [EPO OPS terms](https://www.epo.org/en/service-support/ordering/terms-and-conditions/ops-terms-and-conditions) and
@@ -264,7 +318,8 @@ No provider data, reference PDFs or credentials ship with the software.
 
 ## Limitations
 
-- Direct transport: offline-tested only (see the note at the top).
+- Direct transport: offline-tested only (see the note at the top). The `oa-rejections` route and the cross-process limiter have never been run against the live USPTO API.
+- `oa-rejections` uses the USPTO's legacy Rejections API; the successor (Office Action Search API) is not implemented.
 - File-form and XML-archive application downloads (`fileId`/`format`) work only with the n8n transport.
 - Reference full-text search (`research_reference_search`), archiving and passage reading need the optional Get
   Files integration. Without it, `references-fetch` still downloads and hash-checks the official PDFs.

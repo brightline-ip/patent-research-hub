@@ -25,8 +25,9 @@ Other tools can reuse the Hub's provider access without running the MCP server. 
 
 Routes on the direct transport: `uspto` (body `{source:'odp', url, method:'POST', body:{q, pagination:{offset, limit}}}`),
 `ptab`, `govinfo`, `courtlistener`, `epo`, `public`, `reference-index`, `ptab-files`, `application-documents`,
-`application-pdf`, `google-bigquery`, `google-bigquery-query`, `examiner-bigquery`, `examiner-bigquery-query`. The
-`model`, `external-access`, `patentsview-catalog` and `oa-rejections` routes exist only on the n8n transport.
+`application-pdf`, `oa-rejections`, `google-bigquery`, `google-bigquery-query`, `examiner-bigquery`,
+`examiner-bigquery-query`. The `model`, `external-access` and `patentsview-catalog` routes exist only on the n8n transport.
+`oa-rejections` (new in 0.2.0) is available on both transports.
 Every route validates its input with the same rules as the n8n workflows (`src/workflow-validation.mjs`), so a
 caller cannot reach an arbitrary host, path or SQL text.
 
@@ -34,11 +35,62 @@ caller cannot reach an arbitrary host, path or SQL text.
 (`USPTO_API_KEY` and so on); `n8n` posts to the loopback n8n gateway described in
 [extras/n8n/README.md](../extras/n8n/README.md). The envelope shape is the same on both.
 
+### Gateway command: the supported way for other tools
+
+A tool that needs provider access should not import the Hub's modules or load `keys.env`. Start the Hub as a short-lived child:
+
+```
+"<install>\Hub.cmd" gateway <route> --json-in        (Windows installer: loads keys.env for this child only)
+node src/cli.mjs gateway <route> --json-in           (from source: keys from your environment or node --env-file)
+```
+
+- **stdin:** one JSON object, at most 256 KB: the route body, exactly what `callGateway(route, body)` takes (for the `uspto`
+  route `{source:'odp', url, method:'POST', body:{q, pagination:{offset, limit}}}`; for `oa-rejections`
+  `{action:'records', application_numbers:['17000001', ...up to 100 eight-digit numbers], start?, rows?}` or `{action:'fields'}`).
+- **stdout, exit 0:** the provider envelope `callGateway` returns, as one JSON document, for example
+  `{"text":"...","status":200,"contentType":"application/json"}`. A provider status such as 404, 413 or 429 is **returned in the
+  envelope** (a 429 adds `retryAfterSeconds`); it is not a failure of the command. The caller decides what to do with it.
+- **stdout, any other exit:** `{"error":{"code":"...","message":"..."}}`. Exit 1 `error`; **2** `not_configured` (the key is
+  missing; `missing`, `register` and `terms` are included, nothing was sent); **64** `bad_request` (usage, invalid JSON, not an
+  object, over 256 KB); **75** `local_limit` (hourly cap used up) or `local_busy` (the key stayed busy or cooling down longer than
+  `limiterMaxWaitMs`), both with `retry_after_seconds`, so the caller should wait and then retry.
+- **Routes:** `uspto`, `ptab`, `oa-rejections`, `ptab-files`, `application-documents`, `application-pdf`, `govinfo`,
+  `courtlistener`, `epo`, `public`, `reference-index`. BigQuery routes are not offered (they can cost money and have their own
+  CLI commands and caps); neither are the n8n-only routes.
+- **Waiting.** The command takes its turn behind other Hub processes using the same key (see "Provider quotas"), so a call can
+  take longer than the provider's own response time. Set your own timeout above `limiterMaxWaitMs` plus the download time, or
+  lower `limiterMaxWaitMs` in `config.json`.
+- **Nothing is retained.** The command does not write to the Hub database; it only touches the limiter state in
+  `<dataDir>/limiter`. The caller stores whatever it wants to keep.
+- **No override.** The command never loads a module named by the environment or the request; `FRAME_GATEWAY_MODULE`-style
+  test overrides belong to the caller and must be disabled in the caller whenever keys are loaded. Keys exist only in the
+  child's environment.
+- **Version check.** `gateway` exists from 0.2.0. An older Hub rejects the unknown option and exits non-zero without the
+  JSON error shape above, so a caller should treat a non-zero exit with no `error` object as "Hub too old".
+
+### Office-action rejections and the legacy API
+
+`oa-rejections` posts to `https://api.uspto.gov/api/v1/patent/oa/oa_rejections/v2/records` (and `GET .../fields`), with the
+key in `X-API-KEY`. Only 8-digit application numbers are accepted; the criteria are built by the Hub. The HTTP status comes from
+the response. A 2xx answer must contain `response.numFound` (a non-negative integer) and `response.docs` (an array), or, for
+the field list, `fields`; anything else, including a 2xx body that carries an error code, becomes 502, never zero records.
+A 404 is passed through as 404 (only the ODP application search treats "no matching records" as a zero-count result).
+
+The USPTO labels this API **legacy**. The route sits behind an adapter (`src/oa-adapter.mjs`, selected by the
+`oaRejectionsAdapter` setting). The newer Office Action Search API is not implemented: its endpoint and field list could not be
+read without signing in to the Open Data Portal when this release was prepared (the portal serves non-browser clients a script
+shell, and the legacy documentation links lead to it), so whether it carries the rejection fields (`hasRej101` to `hasRejDP`,
+`legalSectionCode`, `actionTypeCategory`, citation counts) is unverified. Adding it needs its documented contract and a test
+written against that contract.
+
 ### Patent Genius
 
-Patent Genius is a separate Brightline IP tool that has not been published. It loads this Hub as an optional
-provider by directory: its `PG_HUB_ROOT` setting (alias `PG_TOOL_HUB_ROOT`) names the Hub's install directory, and
-Patent Genius imports several modules from that directory's `src/` folder with your user rights:
+Patent Genius is a separate Brightline IP tool. From Hub 0.2.0 the supported route for provider calls is the
+`gateway` command above: Patent Genius starts it as a child and never loads `keys.env` or imports Hub internals for
+those calls. The older, import-based way below still works with this Hub but gives the importing process your keys in
+memory; it is kept for the pieces that have no `gateway` equivalent yet. Patent Genius's `PG_HUB_ROOT` setting (alias
+`PG_TOOL_HUB_ROOT`) names the Hub's install directory, and the import-based way loads modules from that directory's `src/`
+folder with your user rights:
 
 - `src/gateway.mjs`: `callGateway` and `readConfig`, to harvest USPTO search pages with ODP search bodies on the
   `uspto` route (its frame scripts). Its `FRAME_GATEWAY_MODULE` setting can point at a replacement gateway module instead.
@@ -49,17 +101,21 @@ Patent Genius imports several modules from that directory's `src/` folder with y
 
 Provider keys stay in the Hub's environment (`USPTO_API_KEY` and so on, direct transport) or a configured n8n gateway;
 the Hub's data directory (`PATENT_RESEARCH_DATA_DIR`) holds what Patent Genius retrieves through it. We intend to keep
-the exports and call signatures above stable across 0.1.x. Only the gateway contract (the two exports, the `uspto`
+the exports and call signatures above stable across 0.1.x and 0.2.x. Only the gateway contract (the two exports, the `uspto`
 route body and the `{text, status, contentType}` envelope with a returned status) is exercised by this repository's
 tests (`test/direct.test.mjs`); the other imports are not covered here, so check Patent Genius's own notes after
 upgrading the Hub.
 
 ## Provider quotas
 
-The Hub's direct transport applies two local safeguards per provider: a minimum spacing between requests
-(`directMinIntervalMs`) and a request-count cap per rolling hour (`maxRequestsPerHour`, default 120 for USPTO, EPO,
-GovInfo, CourtListener and BigQuery; `0` disables it). Exceeding the cap raises a clear error naming the provider. These
-limits are per process and are not your provider's quota: USPTO sets per-key limits, EPO OPS has a weekly fair-use quota,
+The Hub's direct transport applies local safeguards to every keyed provider and key, shared by all Hub processes that use
+the same data folder (state in `<dataDir>/limiter`): **one call at a time** (a caller that finds the key busy waits for its
+turn), a minimum spacing between request starts (`directMinIntervalMs`), a request-count cap per rolling hour
+(`maxRequestsPerHour`, default 120 for USPTO, EPO, GovInfo, CourtListener and BigQuery; `0` disables it) and a cooldown after
+HTTP 429 (at least 5 seconds, longer if `Retry-After` says so, doubling on repeats, at most 15 minutes). Only an exhausted
+hourly cap raises an error, with the code `local_limit` (property `retryAfterSeconds`, `limit`) and the wait time in the
+message; waiting longer than `limiterMaxWaitMs` raises `local_busy`. The README section "USPTO key rules and the Hub's
+limits" lists the portal's published rules. These limits are not your provider's quota: USPTO sets per-key limits, EPO OPS has a weekly fair-use quota,
 and api.data.gov keys (GovInfo) default to about 1,000 requests per hour. Check each provider's current terms
 (`research_sources` / `doctor` print the registration and terms links).
 

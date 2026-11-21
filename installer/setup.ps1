@@ -254,7 +254,7 @@ try {
     if (-not $hadInstall) { Write-Utf8NoBom $paths.Marker "Patent Research Hub program folder. The uninstaller removes only folders that contain this file.`r`n" }
     New-Item -ItemType Directory -Force -Path $paths.Logs | Out-Null
     if ($bundle -ine $InstallRoot) {
-        $null = & robocopy.exe $bundle $InstallRoot /MIR /XJ /XD .git node_modules .venv .npm-cache logs data exports /XF installer.json MCP-setup.json MCP-setup.codex.toml Hub.cmd GETTING-STARTED.txt config.json .env keys.env $script:PrhMarker /NFL /NDL /NJH /NJS /NP
+        $null = & robocopy.exe $bundle $InstallRoot /MIR /XJ /R:1 /W:1 /XD .git node_modules .venv .npm-cache logs data exports /XF installer.json MCP-setup.json MCP-setup.codex.toml Hub.cmd GETTING-STARTED.txt config.json .env keys.env $script:PrhMarker /NFL /NDL /NJH /NJS /NP
         if ($LASTEXITCODE -ge 8) { throw "Copying the program files failed (robocopy code $LASTEXITCODE)." }
     }
     # Clear the "downloaded from the Internet" mark on the copies this installation runs.

@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {spawn,spawnSync} from 'node:child_process';
+import {pathToFileURL} from 'node:url';
 
 // Windows installer scripts, run under Windows PowerShell 5.1 against scratch folders. Nothing here installs
 // anything, touches %LOCALAPPDATA% or needs the network.
@@ -231,6 +232,30 @@ test('Hub.cmd reads the caller\'s code page from the last word of chcp output, d
   // The whole wrapper, with the real chcp, still passes the Hub's exit code on.
   const full=spawnSync('cmd.exe',['/d','/c',path.join(dir,'Hub.cmd'),'doctor'],{cwd:dir,encoding:'utf8',windowsHide:true,timeout:60000});
   assert.equal(full.status,7,full.stdout+full.stderr);
+});
+
+test('Hub.cmd gateway: keys.env is loaded for the child, a JSON request on stdin returns the envelope, and a test-module override is ignored',{skip},()=>{
+  const dir=path.join(scratch,'hubgateway'),data=path.join(dir,'d');
+  fs.mkdirSync(data,{recursive:true});fs.cpSync(path.join(repo,'src'),path.join(dir,'src'),{recursive:true});
+  const common=path.join(repo,'installer','common.ps1');
+  const gen=run(['-Command',`. '${common}'\n$p = Get-PrhPaths '${dir}' '${data}'\n[IO.File]::WriteAllText('${path.join(dir,'Hub.cmd')}', (Get-PrhHubCmdText '${process.execPath}' $p))`]);
+  assert.equal(gen.status,0,gen.stdout+gen.stderr);
+  const log=path.join(dir,'requests.jsonl'),marker=path.join(dir,'override-loaded.txt'),override=path.join(dir,'override.mjs');
+  fs.writeFileSync(override,`import fs from 'node:fs';fs.writeFileSync(${JSON.stringify(marker)},'x');export const callGateway=async()=>({});`);
+  const preload=pathToFileURL(path.join(repo,'test','fixtures','mock-provider-preload.mjs')).href;
+  const env={...process.env,NODE_OPTIONS:`--import=${preload}`,PRH_MOCK_LOG:log,FRAME_GATEWAY_MODULE:override,PRH_MOCK_RULES:JSON.stringify([{match:'/applications/search',status:200,body:{count:0,patentFileWrapperDataBag:[]}}])};
+  delete env.PATENT_RESEARCH_DATA_DIR;delete env.USPTO_API_KEY;
+  const input=JSON.stringify({source:'odp',url:'https://api.uspto.gov/api/v1/patent/applications/search',method:'POST',body:{q:'x',pagination:{offset:0,limit:5}}});
+  const call=()=>spawnSync('cmd.exe',['/d','/c',path.join(dir,'Hub.cmd'),'gateway','uspto','--json-in'],{cwd:dir,env,input,encoding:'utf8',windowsHide:true,timeout:60000});
+  // No key anywhere: the child reports not_configured and sends nothing.
+  fs.writeFileSync(path.join(data,'keys.env'),'USPTO_API_KEY=\n');
+  const missing=call();assert.equal(missing.status,2,missing.stdout+missing.stderr);assert.equal(JSON.parse(missing.stdout).error.code,'not_configured');assert.ok(!fs.existsSync(log));
+  // The key from keys.env reaches the child (and only the provider request).
+  fs.writeFileSync(path.join(data,'keys.env'),'USPTO_API_KEY=fixture-key-from-keys-env\n');
+  const ok=call();assert.equal(ok.status,0,ok.stdout+ok.stderr);
+  assert.equal(JSON.parse(ok.stdout).status,200);assert.ok(!ok.stdout.includes('fixture-key-from-keys-env')&&!ok.stderr.includes('fixture-key-from-keys-env'));
+  assert.equal(JSON.parse(fs.readFileSync(log,'utf8').trim()).key,'fixture-key-from-keys-env');
+  assert.ok(!fs.existsSync(marker),'FRAME_GATEWAY_MODULE must not be loaded');assert.ok(fs.existsSync(path.join(data,'data','limiter')),'limiter state lives in the Hub data folder (PATENT_RESEARCH_DATA_DIR)');
 });
 
 test('winget "already installed" is not recorded as something Setup installed, and Uninstall asks with the stop notice',{skip},()=>{

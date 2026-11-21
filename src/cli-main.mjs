@@ -1,0 +1,68 @@
+import fs from 'node:fs/promises';
+import {parseJsonText} from './json-text.mjs';
+import {parseArgs} from 'node:util';
+import {Hub} from './hub.mjs';
+import {analyzeCpc} from './analysis.mjs';
+import {exportReport} from './reports.mjs';
+import {ReferenceLibrary} from './references.mjs';
+import {externalAccess} from './external-access.mjs';
+import {estimateBigQuery,queryBigQueryTrendReport,bigQuerySourceStatus} from './bigquery.mjs';
+import {lookupExaminer,estimateExaminer,queryExaminerReport,examinerSourceStatus} from './examiner.mjs';
+import {acquirePatentDocumentOriginal,patentDocumentInventory} from './patent-documents.mjs';
+import {releaseStatus} from './release.mjs';
+import {safeErrorMessage} from './security.mjs';
+import path from 'node:path';
+import {root} from './hub.mjs';
+import {patentsViewStatus,queryPatentsView,preparePatentsView} from './patentsview.mjs';
+import {normalizePatentsViewCohort} from './patentsview-intake.mjs';
+import {doctor} from './doctor.mjs';
+import {fetchReferences} from './reference-fetch.mjs';
+import {pythonExecutable} from './config.mjs';
+const {values:v,positionals:p}=parseArgs({allowPositionals:true,options:{source:{type:'string'},query:{type:'string'},id:{type:'string'},cursor:{type:'string'},file:{type:'string'},manifest:{type:'string'},evidence:{type:'string'},'actual-bytes':{type:'string'},'force-zero':{type:'boolean'},cpc:{type:'string'},scope:{type:'string'},examiner:{type:'string'},'art-unit':{type:'string'},'application-number':{type:'string'},'document-id':{type:'string'},'max-documents':{type:'string'},from:{type:'string'},to:{type:'string'},limit:{type:'string'},unit:{type:'string'},'date-basis':{type:'string'},offset:{type:'string'},retry:{type:'boolean',default:false}}});
+const hub=new Hub();
+const patentsViewRoot=path.join(hub.dataRoot,'patentsview');
+try{
+  let result;
+  switch(p[0]){
+    case 'patentsview-status':result=patentsViewStatus({dataRoot:patentsViewRoot});break;
+    case 'patentsview-query':result=queryPatentsView(v.file?parseJsonText(await fs.readFile(v.file,'utf8')):{assignee:v.query||undefined,cpcSection:v.cpc||undefined,limit:v.limit?Number(v.limit):50},{dataRoot:patentsViewRoot});break;
+    case 'patentsview-prepare':result=await preparePatentsView({zipPath:v.file,year:Number(v.from),outputDirectory:v.manifest,expectedZipSha256:v.id},{dataRoot:patentsViewRoot,python:pythonExecutable(hub.config)});break;
+    case 'patentsview-intake':result=await normalizePatentsViewCohort({manifestPath:v.manifest},{dataRoot:patentsViewRoot,onProgress:p=>{if(p.completed===1||p.completed%20===0||p.completed===p.total)console.error(JSON.stringify(p));}});break;
+    case 'patentsview-install':result=await normalizePatentsViewCohort({manifestPath:v.manifest,install:true},{dataRoot:patentsViewRoot});break;
+    case 'doctor':result=doctor({config:hub.config,env:hub.env});break;
+    case 'references-fetch':result=await fetchReferences({family:v.source||'',id:v.id||''},{config:hub.config});break;
+    case 'sources':result=hub.list();break;
+    case 'release-status':result=releaseStatus({hub});break;
+    case 'backup':result=hub.store.backup();break;
+    case 'restore-stage':result=hub.store.stageRestore(v.manifest||'');break;
+    case 'patent-documents':result=await patentDocumentInventory({applicationNumber:v['application-number']||'',maxDocuments:v['max-documents']?Number(v['max-documents']):2000},{config:hub.config,store:hub.store});break;
+    case 'patent-document-original':result=await acquirePatentDocumentOriginal({applicationNumber:v['application-number']||'',documentIdentifier:v['document-id']||''},{config:hub.config});break;
+    case 'external':result=externalAccess({source:v.source,query:v.query||'',publication:v.id||'',cpc:v.cpc||'',from:v.from?Number(v.from):undefined,to:v.to?Number(v.to):undefined});break;
+    case 'bigquery-estimate':result=await estimateBigQuery({cpc:v.cpc||'',from:Number(v.from),to:Number(v.to)});break;
+    case 'bigquery-status':result=bigQuerySourceStatus({config:hub.config,store:hub.store});break;
+    case 'bigquery-report':result=await queryBigQueryTrendReport({cpc:v.cpc||'',from:Number(v.from),to:Number(v.to)},{store:hub.store});break;
+    case 'bigquery-usage':result=hub.store.bigQueryUsage(v.id||undefined);break;
+    case 'bigquery-reconcile':result=hub.store.reconcileBigQuery(v.id,{actualBytes:v['actual-bytes'],evidence:v.evidence||'',forceZero:v['force-zero']===true});break;
+    case 'examiner-lookup':result=await lookupExaminer({name:v.examiner||v.query||'',limit:v.limit?Number(v.limit):25},{hub});break;
+    case 'examiner-status':result=examinerSourceStatus({config:hub.config,store:hub.store});break;
+    case 'examiner-estimate':result=await estimateExaminer({scope:v.scope,examiner:v.examiner,artUnit:v['art-unit'],from:Number(v.from),to:Number(v.to)});break;
+    case 'examiner-report':result=await queryExaminerReport({scope:v.scope,examiner:v.examiner,artUnit:v['art-unit'],from:Number(v.from),to:Number(v.to)},{store:hub.store});break;
+    case 'references':result=new ReferenceLibrary(hub).list();break;
+    case 'references-acquire':result=await new ReferenceLibrary(hub).queue({family:v.source||'',cycle:v.id||'initial'});break;
+    case 'references-poll':result=await new ReferenceLibrary(hub).poll();break;
+    case 'references-search':result=new ReferenceLibrary(hub).search(v.query||'',{family:v.source||''});break;
+    case 'references-check':result=await new ReferenceLibrary(hub).check();break;
+    case 'refresh':result=await hub.sync(v.source);break;
+    case 'search':result=hub.store.search(v.query||'',v.source||'');break;
+    case 'record':result=hub.store.get(v.id);break;
+    case 'query':result=await hub.query(v.source,v.query||'',{cursor:v.cursor||'',limit:v.limit?Number(v.limit):(v.source==='courtlistener'?20:25)});break;
+    case 'archive':result=await hub.archive(v.id,{retry:v.retry});break;
+    case 'jobs':result=await hub.jobs((v.id||'').split(','));break;
+    case 'passages':result=await hub.corpusSearch(v.query||'');break;
+    case 'read-source':result=await hub.corpusRead(v.id,Number(v.offset||0));break;
+    case 'cpc':{const input=parseJsonText(await fs.readFile(v.file,'utf8'));const analysis=analyzeCpc(input,{cpc:v.cpc,from:Number(v.from),to:Number(v.to),unit:v.unit||'publication',dateBasis:v['date-basis']||'publication'});result={analysis,files:await exportReport({title:analysis.title,analysis,dataset:input})};break;}
+    default:result={usage:['doctor','sources','release-status','backup','restore-stage --manifest BACKUP.manifest.json','patent-documents --application-number 18123456 --max-documents 25','patent-document-original --application-number 18123456 --document-id DOCUMENT_ID','refresh --source cafc','search --query patent','record --id RECORD_ID','query --source govinfo --query Alice','archive --id RECORD_ID [--retry]','jobs --id JOB_ID','passages --query patent','read-source --id DOCUMENT_ID --offset 0','bigquery-status','bigquery-estimate --cpc G06N --from 2024 --to 2024','bigquery-report --cpc G06N --from 2021 --to 2025','bigquery-usage [--id YYYY-MM]','bigquery-reconcile --id RESERVATION_ID --actual-bytes BYTES [--force-zero] --evidence "PROVIDER JOB HISTORY CHECK"','examiner-status','examiner-lookup --examiner Example','examiner-estimate --scope examiner --examiner "EXAMPLE, ALEX Q" --from 2010 --to 2016','examiner-report --scope art-unit --art-unit 3645 --from 2010 --to 2016','cpc --file DATA.json --cpc G06N --from 2021 --to 2025','references-fetch [--source mpep] [--id usc35]']};
+  }
+  if(result?.usage)result.usage.push('patentsview-status','patentsview-query --query robotics --cpc G --limit 20','patentsview-query --file FILTERS.json','patentsview-prepare --file ORIGINAL.zip --from 2025 --manifest NEW_PREPARED_DIRECTORY --id EXPECTED_ZIP_SHA256','patentsview-intake --manifest PREPARED/manifest.json','patentsview-install --manifest PREPARED/manifest.json');
+  console.log(JSON.stringify(result,null,2));
+}catch(e){if(e?.notConfigured){console.log(JSON.stringify({...e.notConfigured,message:safeErrorMessage(e.message)},null,2));process.exitCode=2;}else{console.error(JSON.stringify({error:safeErrorMessage(e.message)}));process.exitCode=1;}}finally{hub.store.close();}

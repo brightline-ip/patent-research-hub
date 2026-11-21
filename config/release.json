@@ -1,8 +1,8 @@
 {
   "name": "Patent Research Hub",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "status": "public-preview",
-  "releasedAt": "2026-11-19",
+  "releasedAt": "2026-11-20",
   "scope": "Public preview. Direct transport (default) is covered by offline tests with mocked provider responses and has not been verified against live providers. The optional n8n workflows are included as portable exports.",
   "portableWorkflowFiles": [
     "extras/n8n/workflows/application-documents-core.json",
