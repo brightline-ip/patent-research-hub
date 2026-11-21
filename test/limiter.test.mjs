@@ -115,7 +115,7 @@ test('processes at the same key run strictly one at a time (burst 1)',async()=>{
 });
 
 test('processes at different keys do not wait for each other',async()=>{
-  const s=childSetup({rules:[okRule({delayMs:600})]});
+  const s=childSetup({rules:[okRule({delayMs:4000})]});
   const runs=await Promise.all([runChild(s,{input:searchRequest,env:{USPTO_API_KEY:'key-one-fixture'}}),runChild(s,{input:searchRequest,env:{USPTO_API_KEY:'key-two-fixture'}})]);
   assert.deepEqual(runs.map(r=>r.code),[0,0]);assert.equal(overlaps(s.requests()),true,'independent keys should run in parallel');
 });
