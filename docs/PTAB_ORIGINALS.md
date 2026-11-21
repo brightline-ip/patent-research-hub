@@ -14,7 +14,7 @@ the optional n8n custom node.
    same document under `https://data.uspto.gov/ptab-files/` with the expected signature parameters, and follows it
    **without** the API key. The signed link never leaves the downloader or enters any record.
 4. While streaming it caps the body at 10 MiB, pins public IPv4 DNS for the provider hosts, applies one 60-second
-   deadline, allows two concurrent downloads per process, and checks MIME type, length and the `%PDF-` signature.
+   deadline, allows one call at a time per key across all Hub processes on the direct transport (the cross-process limiter; PTAB downloads wait their turn behind other USPTO calls), and checks MIME type, length and the `%PDF-` signature.
 5. The Hub re-checks identity, base64 encoding, byte count and signature, computes SHA-256 and stages the file as
    `<corpusIntakeRoot>/patent-research/<sha256>.pdf` (default `<dataDir>/intake`).
 6. With the optional Get Files integration configured, the staged file is submitted with its official source URL,

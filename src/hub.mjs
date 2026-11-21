@@ -17,7 +17,7 @@ export class Hub{
       if(typeof response.text!=='string'||typeof response.contentType!=='string'||response.status<200||response.status>=300)throw new Error('Official guidance index gateway returned an invalid response');
       return response;
     }
-    return gatewaySource(source,url,options,this.config,{env:this.env,fetchImpl:this.fetch,limiterDir:path.join(this.dataRoot,'limiter')});
+    return gatewaySource(source,url,options,this.config,{env:this.env,fetchImpl:this.fetch});
   }
   async json(source,url,options={}){const r=await this.request(source,url,{...options,headers:{'Content-Type':'application/json',...options.headers}});try{return JSON.parse(r.text);}catch{throw new Error('Provider returned invalid JSON');}}
   async sync(id){const s=sourceById(id);if(!['rss','links','directory'].includes(s.kind))throw new Error('Use query for API sources; external sources require their own access setup');const r=await this.request(id,s.url);if(!/xml|html/.test(r.contentType))throw new Error('Unexpected source content type');const records=s.kind==='rss'?parseCafc(r.text):parseSourceLinks(s,r.text);return this.store.ingest(id,{url:s.url},r.text,records,{transport:this.config.transport,exhaustive:false,scope:s.kind==='rss'?'current RSS feed':'links visible on official index',notes:s.coverage});}
@@ -67,7 +67,7 @@ export class Hub{
     if(['ptab-trials','ptab-appeals'].includes(r.source)){
       if(this.config.ptabOriginalsEnabled!==true)throw new Error('PTAB original downloads are disabled (ptabOriginalsEnabled)');
       const identity=ptabOriginalRequest(r);
-      const envelope=await callGateway('ptab-files',{...(identity.trialNumber?{trialNumber:identity.trialNumber}:{appealNumber:identity.appealNumber}),documentIdentifier:identity.documentIdentifier},{config:this.config,maxBytes:15*1024*1024,fetchImpl:this.fetch,env:this.env,limiterDir:path.join(this.dataRoot,'limiter')});
+      const envelope=await callGateway('ptab-files',{...(identity.trialNumber?{trialNumber:identity.trialNumber}:{appealNumber:identity.appealNumber}),documentIdentifier:identity.documentIdentifier},{config:this.config,maxBytes:15*1024*1024,fetchImpl:this.fetch,env:this.env});
       const verified=decodePtabOriginal(envelope,identity.url);
       const file=await stageOriginal(verified.bytes,verified.sha256,intakeDir(this.config,this.env));
       const submission=await client.ingest('legal',[{path:file,title:r.title,source_url:r.url,source_system:'patent-research',source_id:r.id,source_date:r.date,expected_sha256:verified.sha256,mode:'both',tags:['patent-research',r.source],idempotency_key:'ptab-original:'+r.id+':'+r.snapshotId}]);

@@ -21,7 +21,7 @@ export function childSetup({config={},rules=[]}={}){
   fs.mkdirSync(data,{recursive:true});
   fs.writeFileSync(configFile,JSON.stringify({directMinIntervalMs:{uspto:0},...config}));
   return {dir,data,log,configFile,rules,
-    env:{...process.env,PATENT_RESEARCH_DATA_DIR:data,PATENT_RESEARCH_CONFIG:configFile,USPTO_API_KEY:'fixture-key-for-child-tests',PRH_MOCK_LOG:log,PRH_MOCK_RULES:JSON.stringify(rules),NODE_OPTIONS:`--import=${preload}`},
+    env:{...process.env,PATENT_RESEARCH_DATA_DIR:data,PATENT_RESEARCH_LIMITER_DIR:path.join(data,'limiter'),PATENT_RESEARCH_CONFIG:configFile,USPTO_API_KEY:'fixture-key-for-child-tests',PRH_MOCK_LOG:log,PRH_MOCK_RULES:JSON.stringify(rules),NODE_OPTIONS:`--import=${preload}`},
     requests(){return fs.existsSync(log)?fs.readFileSync(log,'utf8').split('\n').filter(Boolean).map(x=>JSON.parse(x)):[];}};
 }
 export function runChild(setup,{args=['uspto','--json-in'],input,env={},hold=false}={}){

@@ -95,7 +95,7 @@ test('gateway --limits prints the effective limits from configuration only: no k
   const s=childSetup({config:{maxRequestsPerHour:{uspto:77}},rules:[okRule]});
   const r=await runChild(s,{args:['--limits'],env:{USPTO_API_KEY:''}});
   assert.equal(r.code,0,r.stdout+r.stderr);
-  assert.equal(r.json.providers.uspto.max_requests_per_hour,77);assert.equal(r.json.providers.epo.max_requests_per_hour,1800);
+  assert.equal(r.json.providers.uspto.max_calls_per_hour,77);assert.equal(r.json.providers.epo.max_calls_per_hour,1800);
   assert.equal(r.json.providers.uspto.concurrent_calls_per_key,1);assert.equal(r.json.providers.uspto.min_interval_ms,0);
   assert.equal(r.json.limiter_applies,true);assert.equal(r.json.min_wait_after_429_seconds,5);assert.match(r.json.hub_version,/^\d+\.\d+\.\d+$/);
   assert.deepEqual(s.requests(),[]);assert.deepEqual(fs.readdirSync(s.data),[]);

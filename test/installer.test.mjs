@@ -235,7 +235,7 @@ test('Hub.cmd reads the caller\'s code page from the last word of chcp output, d
 });
 
 test('Hub.cmd gateway: keys.env is loaded for the child, a JSON request on stdin returns the envelope, and a test-module override is ignored',{skip},()=>{
-  const dir=path.join(scratch,'hubgateway'),data=path.join(dir,'d');
+  const dir=path.join(scratch,'hub gateway'),data=path.join(dir,'d');   // a space in the path: callers must quote it
   fs.mkdirSync(data,{recursive:true});fs.cpSync(path.join(repo,'src'),path.join(dir,'src'),{recursive:true});
   const common=path.join(repo,'installer','common.ps1');
   const gen=run(['-Command',`. '${common}'\n$p = Get-PrhPaths '${dir}' '${data}'\n[IO.File]::WriteAllText('${path.join(dir,'Hub.cmd')}', (Get-PrhHubCmdText '${process.execPath}' $p))`]);
@@ -243,10 +243,11 @@ test('Hub.cmd gateway: keys.env is loaded for the child, a JSON request on stdin
   const log=path.join(dir,'requests.jsonl'),marker=path.join(dir,'override-loaded.txt'),override=path.join(dir,'override.mjs');
   fs.writeFileSync(override,`import fs from 'node:fs';fs.writeFileSync(${JSON.stringify(marker)},'x');export const callGateway=async()=>({});`);
   const preload=pathToFileURL(path.join(repo,'test','fixtures','mock-provider-preload.mjs')).href;
-  const env={...process.env,NODE_OPTIONS:`--import=${preload}`,PRH_MOCK_LOG:log,FRAME_GATEWAY_MODULE:override,PRH_MOCK_RULES:JSON.stringify([{match:'/applications/search',status:200,body:{count:0,patentFileWrapperDataBag:[]}}])};
+  const env={...process.env,NODE_OPTIONS:`--import=${preload}`,PRH_MOCK_LOG:log,PATENT_RESEARCH_LIMITER_DIR:path.join(dir,'lim'),FRAME_GATEWAY_MODULE:override,PRH_MOCK_RULES:JSON.stringify([{match:'/applications/search',status:200,body:{count:0,patentFileWrapperDataBag:[]}}])};
   delete env.PATENT_RESEARCH_DATA_DIR;delete env.USPTO_API_KEY;
   const input=JSON.stringify({source:'odp',url:'https://api.uspto.gov/api/v1/patent/applications/search',method:'POST',body:{q:'x',pagination:{offset:0,limit:5}}});
-  const call=()=>spawnSync('cmd.exe',['/d','/c',path.join(dir,'Hub.cmd'),'gateway','uspto','--json-in'],{cwd:dir,env,input,encoding:'utf8',windowsHide:true,timeout:60000});
+  // The documented way to start a .cmd file: through cmd.exe /d /s /c with the whole command line in one quoted string.
+  const call=()=>spawnSync('cmd.exe',['/d','/s','/c','""'+path.join(dir,'Hub.cmd')+'" gateway uspto --json-in"'],{cwd:dir,env,input,encoding:'utf8',windowsHide:true,timeout:60000,windowsVerbatimArguments:true});
   // No key anywhere: the child reports not_configured and sends nothing.
   fs.writeFileSync(path.join(data,'keys.env'),'USPTO_API_KEY=\n');
   const missing=call();assert.equal(missing.status,2,missing.stdout+missing.stderr);assert.equal(JSON.parse(missing.stdout).error.code,'not_configured');assert.ok(!fs.existsSync(log));
@@ -255,7 +256,7 @@ test('Hub.cmd gateway: keys.env is loaded for the child, a JSON request on stdin
   const ok=call();assert.equal(ok.status,0,ok.stdout+ok.stderr);
   assert.equal(JSON.parse(ok.stdout).status,200);assert.ok(!ok.stdout.includes('fixture-key-from-keys-env')&&!ok.stderr.includes('fixture-key-from-keys-env'));
   assert.equal(JSON.parse(fs.readFileSync(log,'utf8').trim()).key,'fixture-key-from-keys-env');
-  assert.ok(!fs.existsSync(marker),'FRAME_GATEWAY_MODULE must not be loaded');assert.ok(fs.existsSync(path.join(data,'data','limiter')),'limiter state lives in the Hub data folder (PATENT_RESEARCH_DATA_DIR)');
+  assert.ok(!fs.existsSync(marker),'FRAME_GATEWAY_MODULE must not be loaded');assert.ok(fs.existsSync(path.join(dir,'lim')),'limiter state lives in the limiter folder (PATENT_RESEARCH_LIMITER_DIR here; one per-user folder by default)');
 });
 
 test('winget "already installed" is not recorded as something Setup installed, and Uninstall asks with the stop notice',{skip},()=>{

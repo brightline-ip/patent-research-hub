@@ -29,8 +29,10 @@ The direct transport reuses the n8n workflows' validation (`src/workflow-validat
 provider URL and path, bounded query fields, a fixed GovInfo body and sort, and EPO paths limited to one EPODOC
 publication or one CPC symbol. Provider non-success statuses are preserved, so an authentication or quota error is
 reported as an error, never as zero results. Requests to one provider are spaced by `directMinIntervalMs`
-(GovInfo 3.6 s, others 1 s by default); idempotent GET requests are retried at most twice on 429/5xx with
-`Retry-After` or exponential backoff capped at 5 s; POST requests are never retried.
+(GovInfo 3.6 s, others 1 s by default); idempotent GET requests are retried at most twice on 5xx with
+`Retry-After` or exponential backoff capped at 5 s; POST requests are never retried. HTTP 429 is never retried by the Hub's request
+layer: the status is returned, and the cross-process limiter holds the key back for at least 5 seconds (longer if `Retry-After` says so)
+and lets only one call at a time through per key (see the README, "USPTO key rules and the Hub's limits").
 
 These connectors have been exercised offline with mocked responses only in this release.
 

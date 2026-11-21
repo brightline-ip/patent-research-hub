@@ -14,9 +14,8 @@ has been run against the live USPTO API.
 - **Empty search windows.** The direct ODP search route turns the provider's HTTP 404 "no matching records" into a valid
   zero-count result (`count: 0`, as the n8n workflow does); any other 404, other statuses and a 200 carrying that text are
   unchanged.
-- **One call at a time per key, across processes.** New cross-process limiter (`src/limiter.mjs`, state in
-  `<dataDir>/limiter`): a lock held for the whole call that callers wait for (stale locks from dead or hung holders are taken
-  over), minimum spacing across processes, and `maxRequestsPerHour` now shared across processes (it was per process). Only a truly
+- **One call at a time per key, across processes.** New cross-process limiter (`src/limiter.mjs`, state in one per-user folder, `%LOCALAPPDATA%\PatentResearchHub\limiter`, independent of the data folder, so importing programs and `Hub.cmd` always share it; overridable with `PATENT_RESEARCH_LIMITER_DIR`): a lock held for the whole call that callers wait for (stale locks from dead or hung holders are taken
+  over, one waiter at a time, and the holder re-checks the lock before it sends and before it saves), minimum spacing across processes, and `maxRequestsPerHour` now shared across processes (it was per process). Only a truly
   exhausted cap fails, with the new error code `local_limit` and the wait time; waiting longer than the new
   `limiterMaxWaitMs` fails with `local_busy`. New settings `limiterMaxWaitMs` and `limiterStaleLockMs`.
 - **HTTP 429.** Never retried at once. The Hub returns the 429 (with `retryAfterSeconds`) and holds the key back for every
@@ -27,6 +26,8 @@ has been run against the live USPTO API.
   module named by the environment (`FRAME_GATEWAY_MODULE`-style) is loaded; the Hub database is not opened. Documented as the
   supported integration in `docs/INTEGRATION.md`. `src/cli.mjs` now dispatches to `src/cli-main.mjs` (the unchanged command line).
 - **Default hourly cap raised to 1800 per key** (one call every 2 s on average, with the 1 s minimum spacing and one call at a time unchanged), well inside the portal's published rates. New `Hub.cmd gateway --limits` prints the effective limits as JSON (configuration only, no key use) so callers can estimate run times.
+- **Settings are checked.** `directMinIntervalMs`, `maxRequestsPerHour`, `limiterStaleLockMs` (at least 5000) and `limiterMaxWaitMs` must be finite non-negative numbers; a value such as `"1s"` now stops the Hub with a clear message instead of silently switching pacing off. `gateway --limits` and the direct transport use one function, so the report is what is enforced. A longer `Retry-After` is honoured in full (up to 24 hours); only the doubling is capped at 15 minutes. A damaged or unreadable limiter state file is an error (`local_state`), as is a 429 cooldown that cannot be saved. Stale `.tmp` files are swept.
+- **Review fixes.** The takeover of a stale lock is serialised by an exclusive file (before, two processes could take the same stale lock together in about 3 of 120 rounds of a 32-process test); a persistent permission error on the lock file is reported instead of "busy"; the gateway child exits when its parent disappears; stdin may start with a byte order mark; lookups by name use `Object.hasOwn`; the rejections empty-page check compares with the requested start.
 - **Docs.** README, SECURITY and INTEGRATION describe the route, the limits and the USPTO portal rules (ID.me-verified key, one
   call at a time per key, 4 to 15 requests per second, at least 5 seconds after a 429, keys unused for 90 days are deleted).
 - **Installer.** Robocopy in the uninstaller's folder removal and in Setup's program-file copy now runs with `/R:1 /W:1`: with
@@ -43,7 +44,7 @@ has been run against the live USPTO API.
   stayed under the old per-process count may now hit `local_limit`. The default cap is now 1800 per hour per key (was 120 per process); lower it in `config.json` if you want to be more cautious.
 - Calls with the same key now take turns. A second process no longer runs in parallel; it waits (up to `limiterMaxWaitMs`).
 - A 429 is returned to the caller instead of being retried by the Hub's GET retry; wait at least 5 seconds before any retry.
-- A new `<dataDir>/limiter` folder appears. It holds counters and lock files (a salted hash of the key, never the key); it is safe to
+- A new per-user folder `%LOCALAPPDATA%\PatentResearchHub\limiter` appears (not removed by the uninstaller). It holds counters, lock files and a random salt (names are a truncated hash of the key, never the key); it is safe to
   delete while no Hub process is running.
 - Patent Genius 0.1.0 needs this version for `Hub.cmd gateway`.
 

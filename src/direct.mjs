@@ -11,8 +11,7 @@ import {request} from './net.mjs';
 import {sources} from './sources.mjs';
 import {validateWorkflowSource} from './workflow-validation.mjs';
 import {requireProvider} from './providers.mjs';
-import {configDefaults,dataDir} from './config.mjs';
-import path from 'node:path';
+import {configDefaults,effectiveLimits,limiterDir} from './config.mjs';
 import {withProviderSlot,rateLimitWaitSeconds} from './limiter.mjs';
 import {selectOaAdapter} from './oa-adapter.mjs';
 import {packageSearchResponse} from './uspto-search-response.mjs';
@@ -52,13 +51,11 @@ async function pace(provider,{config,fetchImpl}){
 // Runs fn(slot) for one provider call. slot.rateLimited(retryAfterHeader) must be called when the provider answers HTTP 429.
 async function limited(provider,ctx,fn){
   if(!keyedProviders.has(provider)){await pace(provider||'public',ctx);return fn({rateLimited(){}});}
-  const {config,env}=ctx,intervals={...configDefaults.directMinIntervalMs,...(config.directMinIntervalMs||{})};
+  const {config,env}=ctx,limits=effectiveLimits(config),mine=limits.providers[provider];
   return withProviderSlot({
-    dir:ctx.limiterDir||path.join(dataDir(config,env.PATENT_RESEARCH_DATA_DIR?env:process.env),'limiter'),
+    dir:ctx.limiterDir||limiterDir(config,env),
     provider,key:providerKey(provider,env),
-    max:Number({...configDefaults.maxRequestsPerHour,...(config.maxRequestsPerHour||{})}[provider]??0),
-    minIntervalMs:Number(intervals[provider]??1000),
-    staleMs:Number(config.limiterStaleLockMs)||30000,maxWaitMs:Number(config.limiterMaxWaitMs)||1200000,
+    max:mine.maxRequestsPerHour,minIntervalMs:mine.minIntervalMs,staleMs:limits.staleMs,maxWaitMs:limits.maxWaitMs,
     ...(ctx.sleepImpl?{sleep:ctx.sleepImpl}:{}),
   },fn);
 }
@@ -165,7 +162,7 @@ async function sourceRoute(route,body,ctx,maxBytes){
 
 const referenceIndexes={'mpep-index':'https://www.uspto.gov/web/offices/pac/mpep/index.html','frcp-index':'https://www.uscourts.gov/forms-rules/current-rules-practice-procedure/federal-rules-civil-procedure','patent-guidance':'https://www.uspto.gov/patents/laws/patent-legal-administration'};
 async function referenceIndex(body,ctx){
-  const url=referenceIndexes[body?.source];if(!url)throw new Error('Unknown official reference index');
+  const url=Object.hasOwn(referenceIndexes,body?.source)?referenceIndexes[body.source]:null;if(!url)throw new Error('Unknown official reference index');
   const r=await limited('public',ctx,()=>request(url,{timeout:ctx.config.requestTimeoutMs,fetchImpl:ctx.fetchImpl,allowHttpError:true}));
   return {status:r.status,text:r.text,contentType:r.contentType};
 }
@@ -198,13 +195,13 @@ async function applicationDocuments(body,ctx){
 // builds the fixed-endpoint request and packages the answer: HTTP status from the response, fail closed on an unexpected shape.
 async function oaRejections(body,ctx){
   requireProvider('uspto',ctx);
-  const adapter=selectOaAdapter(ctx.config),action=body?.action??'records',spec=adapter.buildRequest(body);
+  const adapter=selectOaAdapter(ctx.config),action=body?.action??'records',spec=adapter.buildRequest(body),start=body?.start??0;
   const r=await limited('uspto',ctx,async slot=>{
     const x=await request(spec.url,{method:spec.method,...(spec.body?{body:spec.body}:{}),headers:{'X-API-KEY':ctx.env.USPTO_API_KEY,Accept:'application/json',...(spec.contentType?{'Content-Type':spec.contentType}:{})},timeout:ctx.config.requestTimeoutMs,maxBytes:8e6,fetchImpl:ctx.fetchImpl,allowHttpError:true});
     x.rateLimit=rateNote(x,slot);
     return x;
   });
-  return {...adapter.packageResponse(action,r.status,r.text),...r.rateLimit};
+  return {...adapter.packageResponse(action,r.status,r.text,{start}),...r.rateLimit};
 }
 
 // ---- Google BigQuery: fixed parameterized SQL only, dry run by default ----

@@ -91,7 +91,7 @@ const noMatch={code:404,message:'Not Found',detailedMessage:'No matching records
 const search={source:'odp',url:'https://api.uspto.gov/api/v1/patent/applications/search',method:'POST',body:{q:'x',pagination:{offset:0,limit:10}}};
 function withHub(fetchImpl,fn){
   const dir=fs.mkdtempSync(path.join(scratch,'hub-'));
-  const hub=new Hub({dataRoot:dir,config:{transport:'direct',directMinIntervalMs:fast,dataDir:dir},env:{USPTO_API_KEY:'fixture-key'},fetchImpl});
+  const hub=new Hub({dataRoot:dir,config:{transport:'direct',directMinIntervalMs:fast,dataDir:dir},env:{USPTO_API_KEY:'fixture-key',PATENT_RESEARCH_LIMITER_DIR:path.join(dir,'limiter')},fetchImpl});
   return Promise.resolve().then(()=>fn(hub)).finally(()=>hub.store.close());
 }
 test('an empty ODP search window (HTTP 404 "no matching records") is a valid zero-count result',async()=>{

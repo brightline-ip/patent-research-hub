@@ -177,9 +177,10 @@ or the file named by `PATENT_RESEARCH_CONFIG`. Credentials are **only** read fro
 | `googleBigQueryBillingMode` | `disabled` | `sandbox-no-billing` (BigQuery sandbox, no billing account) or `billing-enabled-capped` (you accept possible charges up to the caps). |
 | `googleBigQueryPerQueryMaxBytes` | `26843545600` (25 GiB) | Sent as `maximumBytesBilled`; a dry-run estimate above it is refused before execution. |
 | `googleBigQueryMonthlyTrackedMaxBytes` | `274877906944` (256 GiB) | Calendar-month budget tracked locally for queries made by this tool only. |
-| `maxRequestsPerHour` | 1800 per keyed provider (USPTO, EPO, GovInfo, CourtListener, BigQuery); 0 = unlimited | Local request-count limit per provider and key, **shared by every Hub process that uses the same data folder** (kept in `<dataDir>/limiter`). Not the provider's own quota. 1800 an hour (one every 2 s on average) stays well inside the portal's published rates; you may lower it. `Hub.cmd gateway --limits` prints the effective value. When it is used up, calls fail with the error code `local_limit` and the wait time. |
+| `maxRequestsPerHour` | 1800 per keyed provider (USPTO, EPO, GovInfo, CourtListener, BigQuery); 0 = unlimited | Local limit on **calls** (turns at the key, not HTTP attempts) per provider and key, **shared by every Hub process of the same user** (state in the per-user limiter folder, see `limiterDir`). Not the provider's own quota. 1800 an hour (one every 2 s on average) stays well inside the portal's published rates; you may lower it. `Hub.cmd gateway --limits` prints the effective value. When it is used up, calls fail with the error code `local_limit` and the wait time. |
 | `limiterMaxWaitMs` | `1200000` (20 min) | The longest a call waits for its turn, the pacing gap or a 429 cooldown before it fails with `local_busy` and the wait time. |
-| `limiterStaleLockMs` | `30000` | A call lock that nobody has refreshed for this long (the holder died or hung) is taken over. |
+| `limiterStaleLockMs` | `30000` (at least `5000`) | A call lock that nobody has refreshed for this long (the holder died or hung) is taken over. |
+| `PATENT_RESEARCH_LIMITER_DIR` / `limiterDir` | `%LOCALAPPDATA%\PatentResearchHub\limiter` (Windows), `$XDG_STATE_HOME/patent-research-hub/limiter` or `~/.local/state/patent-research-hub/limiter` | Where the cross-process limiter keeps its lock, counters and salt. One folder per user, **independent of the data folder, the install folder and the config file**, so every Hub process of this user (MCP server, CLI, `gateway` children, programs that import the Hub) takes turns at the same lock. Change it only if every caller agrees; it is not removed by the uninstaller (delete `%LOCALAPPDATA%\PatentResearchHub` yourself if you want it gone). |
 | `oaRejectionsAdapter` | `legacy-rejections-v2` | Which USPTO service answers the `oa-rejections` route. Only the legacy Rejections API is implemented. |
 | `directMinIntervalMs` | USPTO/EPO/CourtListener/BigQuery/public 1000 ms, GovInfo 3600 ms | Minimum spacing between request starts to one provider and key (across processes for keyed providers). |
 | `requestTimeoutMs` | `25000` | Per-request timeout (PTAB originals 60 s, application originals and BigQuery 180 s). |
@@ -233,18 +234,19 @@ its limits are subject to change, so check them yourself). In our own words:
 
 What the Hub does about it, for every keyed provider (USPTO, EPO, GovInfo, CourtListener, BigQuery):
 
-- **One call at a time per key, across processes.** A lock file in `<dataDir>/limiter` is held for the whole call, so the MCP
-  server, the command line and `gateway` children started by other tools take turns. A caller that finds the key busy
-  **waits** for its turn; it does not fail. A lock whose holder died, or that has not been refreshed for
-  `limiterStaleLockMs`, is taken over. The key itself is never written there (files are named by a salted hash).
+- **One call at a time per key, across processes.** A lock file in the per-user limiter folder is held for the whole call, so the MCP
+  server, the command line, `gateway` children started by other tools and programs that import the Hub take turns. A caller that finds the key busy
+  **waits** for its turn, and gives up with `local_busy` (and the wait time) only if the wait would exceed `limiterMaxWaitMs`. A lock whose holder died, or that has not been refreshed for
+  `limiterStaleLockMs`, is taken over (one waiter at a time). The key itself is never written there: files are named by a truncated SHA-256 of the provider, a random per-install salt and the key.
 - **Spacing and an hourly cap.** `directMinIntervalMs` (1 s for USPTO by default, far below the published rate) and
-  `maxRequestsPerHour` (1800 by default) apply across processes. Only when the hourly cap is really used up does a call fail,
+  `maxRequestsPerHour` (1800 by default; it counts calls, not HTTP attempts) apply across processes. Only when the hourly cap is really used up does a call fail,
   with the error code `local_limit` and the wait time in the message (`retry_after_seconds` in the `gateway` command).
 - **After a 429** the Hub returns the 429 to the caller (with `retryAfterSeconds`) and holds the key back, for every process,
-  for at least 5 seconds, for as long as `Retry-After` says if that is longer, and twice as long after each further 429
-  in a row (at most 15 minutes). The next call waits that out, or fails with `local_busy` and the wait time if waiting
+  for at least 5 seconds, for as long as `Retry-After` says if that is longer (up to 24 hours), and twice as long after each further 429
+  in a row (the doubling stops at 15 minutes). The next call waits that out, or fails with `local_busy` and the wait time if waiting
   would exceed `limiterMaxWaitMs`.
-- The locks are advisory and local to one data folder on one computer. They do not stop another program or another
+- Times come from the computer's clock: a clock that jumps by minutes can shorten or lengthen one wait or one lock expiry.
+- The locks are advisory and local to one user on one computer. They do not stop another program or another
   computer using the same key.
 
 ## Office-action rejection records

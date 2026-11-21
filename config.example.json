@@ -20,6 +20,7 @@
   },
   "limiterMaxWaitMs": 1200000,
   "limiterStaleLockMs": 30000,
+  "limiterDir": "",
   "oaRejectionsAdapter": "legacy-rejections-v2",
 
   "courtlistenerEnabled": false,

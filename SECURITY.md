@@ -31,8 +31,8 @@ credentials, client material or private data in a report. We aim to acknowledge 
   control; never from tool arguments, shared config, or a folder other people can write to. The same applies to
   `PG_HUB_ROOT`-style settings in tools that load this Hub.
 - **Local limits are not provider enforcement.** `maxRequestsPerHour` (default 1800 per keyed provider and key) and
-  `directMinIntervalMs` are local safeguards shared by the Hub processes that use one data folder (state in `<dataDir>/limiter`;
-  it holds a salted hash of the key, never the key). The one-call-at-a-time lock is advisory: it does not stop another program
+  `directMinIntervalMs` are local safeguards shared by the Hub processes of one user (state in one per-user limiter folder,
+  `%LOCALAPPDATA%\PatentResearchHub\limiter` on Windows; it holds a truncated hash of the key made with a random per-install salt, never the key). The one-call-at-a-time lock is advisory: it does not stop another program
   or computer using the same key, and a process suspended for longer than `limiterStaleLockMs` can lose its lock. The BigQuery per-query ceiling is sent to Google as
   `maximumBytesBilled` and enforced by Google; the monthly cap is a local ledger only and cannot see other tools or the
   console. Reconciling an interrupted BigQuery reservation is an operator-only CLI command (`bigquery-reconcile`), not an MCP
@@ -40,8 +40,9 @@ credentials, client material or private data in a report. We aim to acknowledge 
 - **USPTO key rules.** The Open Data Portal requires an ID.me-verified USPTO.gov account, one key per account and no sharing;
   it blocks concurrent calls with one key, publishes a rate of about 4 to 15 requests per second, asks for a wait of at least
   5 seconds after an HTTP 429 before any automatic retry, and deletes a key that has not been used for 90 days (portal pages
-  read 2026-11-20; the portal can change them). The Hub follows the first three itself (see the README); you are responsible
+  read 2026-11-20; the portal can change them). The Hub itself takes turns at one call at a time per key, keeps below its own request caps (far below the published rate) and holds the key back for at least 5 seconds after a 429 (see the README); you are responsible
   for the account, the key and any later change in the rules.
+- **`NODE_OPTIONS` and the environment.** The Hub is a Node.js program: `NODE_OPTIONS` (for example `--import`), `--env-file` and similar variables of the account that starts it can load code or change settings, and so can anything that can edit `config.json`, `keys.env` or the install folder. The `gateway` command ignores module overrides named by the Hub's own variables, but it cannot protect against the environment of the process it runs in; start it from an environment you control.
 - **Key isolation for other tools (`gateway` command).** A tool that needs provider access starts `Hub.cmd gateway <route>
   --json-in` as a child process: the keys from `keys.env` exist only in that child's environment, the request comes on stdin
   (at most 256 KB, one JSON object), the answer goes to stdout, and the child never prints a key. The command accepts only

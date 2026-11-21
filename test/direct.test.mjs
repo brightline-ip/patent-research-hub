@@ -129,9 +129,9 @@ test('Requests to one provider are paced by the configured minimum interval',asy
 
 test('maxRequestsPerHour stops a keyed provider with a clear local error and leaves other providers alone',async()=>{
   let calls=0;
-  await withHub({config:direct({maxRequestsPerHour:{uspto:2}}),env:{USPTO_API_KEY:'fixture'},fetchImpl:async()=>{calls++;return json(odpPage);}},async hub=>{
+  await withHub({config:direct({maxRequestsPerHour:{uspto:2}}),env:{USPTO_API_KEY:'fixture',PATENT_RESEARCH_LIMITER_DIR:tempDir('patent-lim-')},fetchImpl:async()=>{calls++;return json(odpPage);}},async hub=>{
     await hub.query('odp','a',{limit:2});await hub.query('odp','b',{limit:2});
-    await assert.rejects(hub.query('odp','c',{limit:2}),/Local request limit reached for uspto: 2 requests in the last hour/);
+    await assert.rejects(hub.query('odp','c',{limit:2}),/Local request limit reached for uspto: 2 calls in the last hour/);
   });
   assert.equal(calls,2);
   assert.equal(readConfig({env:{PATENT_RESEARCH_CONFIG:path.join(os.tmpdir(),'absent-config.json')}}).maxRequestsPerHour.uspto,1800);

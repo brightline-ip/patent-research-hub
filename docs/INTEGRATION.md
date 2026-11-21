@@ -57,12 +57,23 @@ node src/cli.mjs gateway <route> --json-in           (from source: keys from you
 - **Routes:** `uspto`, `ptab`, `oa-rejections`, `ptab-files`, `application-documents`, `application-pdf`, `govinfo`,
   `courtlistener`, `epo`, `public`, `reference-index`. BigQuery routes are not offered (they can cost money and have their own
   CLI commands and caps); neither are the n8n-only routes.
-- **Effective limits.** `Hub.cmd gateway --limits` (no route, no stdin) prints JSON and exits 0: `hub_version`, `transport`, `limiter_applies`, per provider `max_requests_per_hour` (0 = unlimited), `min_interval_ms` and `concurrent_calls_per_key` (1), plus `limiter_max_wait_ms`, `limiter_stale_lock_ms` and `min_wait_after_429_seconds` (5). It reads configuration only: no key is read, no request is made, nothing is written. A caller can use it for time estimates (a dry run should divide by the lower of the cap and 3600000 / `min_interval_ms`). An older Hub rejects `--limits` like any unknown usage (non-zero exit, no `error` object).
+- **Effective limits.** `Hub.cmd gateway --limits` (no route, no stdin) prints JSON and exits 0: `hub_version`, `transport`, `limiter_applies`, per provider `max_calls_per_hour` (0 = unlimited; it counts calls, not HTTP attempts), `min_interval_ms` and `concurrent_calls_per_key` (1), plus `limiter_dir`, `limiter_max_wait_ms`, `limiter_stale_lock_ms` and `min_wait_after_429_seconds` (5). It reads configuration only: no key is read, no request is made, nothing is written. A caller can use it for time estimates (a dry run should divide by the lower of the cap and 3600000 / `min_interval_ms`; the values come from the same function the Hub enforces with, and an invalid setting is an error). An older Hub rejects `--limits` like any unknown usage (non-zero exit, no `error` object).
+- **Starting it from your program.** `Hub.cmd` is a batch file, so start it through `cmd.exe`, with the whole command line in
+  one quoted string (this is what the tests do, in a path containing a space):
+  `spawn('cmd.exe',['/d','/s','/c','""'+hubCmdPath+'" gateway uspto --json-in"'],{windowsVerbatimArguments:true})`. Node's own
+  quoting does not survive `cmd.exe`, and spawning a `.cmd` directly is refused by current Node versions. Write the request to
+  the child's stdin and close it.
+- **Large answers.** `application-pdf` returns the document as base64 inside the JSON, up to about 53 MB (a 40 MB PDF). Read
+  stdout as a stream into a buffer of that size; a default `execFile`/`exec` limit (about 1 MB) will cut the answer off.
+- **Stopping it.** Killing `Hub.cmd` (`cmd.exe`) does not by itself kill its `node` child; kill the process tree (`taskkill /T /F
+  /PID <pid>`). As a safety net the node child checks every 2 seconds that the process that started it still exists and exits
+  if not. It watches only its direct parent: if your program dies while `cmd.exe` stays alive, the child runs to the end of its
+  call (bounded by the timeouts and `limiterMaxWaitMs`), releases its lock and exits.
 - **Waiting.** The command takes its turn behind other Hub processes using the same key (see "Provider quotas"), so a call can
   take longer than the provider's own response time. Set your own timeout above `limiterMaxWaitMs` plus the download time, or
   lower `limiterMaxWaitMs` in `config.json`.
 - **Nothing is retained.** The command does not write to the Hub database; it only touches the limiter state in
-  `<dataDir>/limiter`. The caller stores whatever it wants to keep.
+  the per-user limiter folder. The caller stores whatever it wants to keep.
 - **No override.** The command never loads a module named by the environment or the request; `FRAME_GATEWAY_MODULE`-style
   test overrides belong to the caller and must be disabled in the caller whenever keys are loaded. Keys exist only in the
   child's environment.
@@ -83,6 +94,13 @@ read without signing in to the Open Data Portal when this release was prepared (
 shell, and the legacy documentation links lead to it), so whether it carries the rejection fields (`hasRej101` to `hasRejDP`,
 `legalSectionCode`, `actionTypeCategory`, citation counts) is unverified. Adding it needs its documented contract and a test
 written against that contract.
+
+### Imports versus the gateway command
+
+Prefer the `gateway` command for every keyed call. A program that imports `gateway.mjs`, `direct.mjs` or `hub.mjs` runs the same
+limiter (one per-user folder, so it takes turns with `Hub.cmd`), but it holds your keys in its own memory, must load `keys.env` itself,
+and must be configured with the same settings (`config.json`, `PATENT_RESEARCH_CONFIG`, `PATENT_RESEARCH_LIMITER_DIR`) as the Hub, or
+it can apply different limits. The `gateway` command has none of these problems.
 
 ### Patent Genius
 
@@ -109,11 +127,11 @@ upgrading the Hub.
 
 ## Provider quotas
 
-The Hub's direct transport applies local safeguards to every keyed provider and key, shared by all Hub processes that use
-the same data folder (state in `<dataDir>/limiter`): **one call at a time** (a caller that finds the key busy waits for its
-turn), a minimum spacing between request starts (`directMinIntervalMs`), a request-count cap per rolling hour
-(`maxRequestsPerHour`, default 1800 for USPTO, EPO, GovInfo, CourtListener and BigQuery; `0` disables it) and a cooldown after
-HTTP 429 (at least 5 seconds, longer if `Retry-After` says so, doubling on repeats, at most 15 minutes). Only an exhausted
+The Hub's direct transport applies local safeguards to every keyed provider and key, shared by all Hub processes of the same
+user (state in one per-user limiter folder, independent of the data folder and the config file; see `limiterDir` in the README): **one call at a time** (a caller that finds the key busy waits for its
+turn), a minimum spacing between request starts (`directMinIntervalMs`), a cap on calls per rolling hour (calls, not HTTP attempts;
+`maxRequestsPerHour`, default 1800 for USPTO, EPO, GovInfo, CourtListener and BigQuery; `0` disables it) and a cooldown after
+HTTP 429 (at least 5 seconds, as long as `Retry-After` says if longer, up to 24 hours; doubling on repeats, the doubling capped at 15 minutes). Only an exhausted
 hourly cap raises an error, with the code `local_limit` (property `retryAfterSeconds`, `limit`) and the wait time in the
 message; waiting longer than `limiterMaxWaitMs` raises `local_busy`. The README section "USPTO key rules and the Hub's
 limits" lists the portal's published rules. These limits are not your provider's quota: USPTO sets per-key limits, EPO OPS has a weekly fair-use quota,

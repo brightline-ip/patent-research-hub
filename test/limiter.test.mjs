@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
-import {withProviderSlot,limiterId,parseRetryAfterMs,cooldownMs,rateLimitWaitSeconds,LocalLimitError,LimiterBusyError} from '../src/limiter.mjs';
+import {withProviderSlot,limiterId,limiterSalt,lockPath,parseRetryAfterMs,cooldownMs,rateLimitWaitSeconds,LocalLimitError,LimiterBusyError} from '../src/limiter.mjs';
 import {childSetup,runChild,searchRequest,okSearch,scratchFolder} from './helpers/gateway-child.mjs';
 
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
@@ -17,14 +17,18 @@ test('Retry-After and the 429 cooldown: at least 5 s, honour the header, double 
   const now=Date.parse('2026-11-20T10:00:00Z');assert.equal(parseRetryAfterMs('Fri, 20 Nov 2026 10:00:42 GMT',now),42000);assert.equal(parseRetryAfterMs('Fri, 20 Nov 2026 09:00:00 GMT',now),0);
   assert.equal(cooldownMs(1,0),5000);assert.equal(cooldownMs(1,1000),5000);assert.equal(cooldownMs(1,30000),30000);
   assert.deepEqual([1,2,3,4,5].map(n=>cooldownMs(n,0)),[5000,10000,20000,40000,80000]);
-  assert.equal(cooldownMs(30,0),900000);assert.equal(cooldownMs(1,99999999),900000);
+  assert.equal(cooldownMs(30,0),900000);                       // the doubling is capped at 15 minutes
+  assert.equal(cooldownMs(1,1800000),1800000);assert.equal(cooldownMs(9,1800000),1800000);   // a longer Retry-After is honoured in full
+  assert.equal(cooldownMs(1,99999999),86400000);                 // up to 24 hours
   assert.equal(rateLimitWaitSeconds(null),5);assert.equal(rateLimitWaitSeconds('12'),12);assert.equal(rateLimitWaitSeconds('2'),5);
 });
 
-test('limiter files are named by a salted hash and never contain the key',async()=>{
+test('limiter files are named by a truncated hash with a random per-install salt and never contain the key',async()=>{
   const dir=scratchFolder(),key='very-secret-key-value-123';
   await withProviderSlot({dir,provider:'uspto',key,max:5},async()=>1);
-  assert.ok(!limiterId('uspto',key).includes('secret'));assert.notEqual(limiterId('uspto',key),limiterId('uspto','other'));assert.notEqual(limiterId('uspto',key),limiterId('epo',key));
+  const salt=limiterSalt(dir);assert.match(salt,/^[0-9a-f]{48}$/);assert.equal(limiterSalt(dir),salt);
+  assert.ok(!limiterId('uspto',key,salt).includes('secret'));assert.notEqual(limiterId('uspto',key,salt),limiterId('uspto','other',salt));assert.notEqual(limiterId('uspto',key,salt),limiterId('epo',key,salt));assert.notEqual(limiterId('uspto',key,salt),limiterId('uspto',key,'another-install'));
+  assert.ok(!fs.readFileSync(path.join(dir,'salt'),'utf8').includes(key));
   for(const f of fs.readdirSync(dir)){assert.ok(!f.includes('secret'));assert.ok(!fs.readFileSync(path.join(dir,f),'utf8').includes(key));}
 });
 
@@ -47,7 +51,7 @@ test('the hourly cap fails with local_limit and a stated wait only when it is us
   await withProviderSlot(opts,async()=>1);await withProviderSlot(opts,async()=>1);
   const e=await withProviderSlot(opts,async()=>1).then(()=>null,x=>x);
   assert.ok(e instanceof LocalLimitError);assert.equal(e.code,'local_limit');assert.equal(e.limit,2);assert.ok(e.retryAfterSeconds>3500&&e.retryAfterSeconds<=3600);assert.match(e.message,/Wait about \d+ minute\(s\)/);
-  const file=path.join(dir,limiterId('uspto','k')+'.json'),state=JSON.parse(fs.readFileSync(file,'utf8'));
+  const file=path.join(dir,limiterId('uspto','k',limiterSalt(dir))+'.json'),state=JSON.parse(fs.readFileSync(file,'utf8'));
   state.requests=state.requests.map(t=>t-3601000);fs.writeFileSync(file,JSON.stringify(state));
   assert.equal(await withProviderSlot(opts,async()=>'again'),'again');
   assert.equal(await withProviderSlot({...opts,max:0},async()=>'unlimited'),'unlimited');
@@ -63,7 +67,7 @@ test('a 429 starts a cooldown the next call waits out; consecutive 429s double i
   assert.ok(waits[0]>4500&&waits[0]<=5000,'first wait '+waits[0]);
   assert.ok(waits[1]>9500&&waits[1]<=10000,'second wait doubles: '+waits[1]);
   assert.ok(waits[2]>=0);
-  const state=JSON.parse(fs.readFileSync(path.join(dir,limiterId('uspto','k')+'.json'),'utf8'));assert.equal(state.consecutive429,0);
+  const state=JSON.parse(fs.readFileSync(path.join(dir,limiterId('uspto','k',limiterSalt(dir))+'.json'),'utf8'));assert.equal(state.consecutive429,0);
 });
 
 test('a wait longer than limiterMaxWaitMs fails with local_busy and says how long, instead of hanging',async()=>{
@@ -74,7 +78,7 @@ test('a wait longer than limiterMaxWaitMs fails with local_busy and says how lon
 });
 
 test('a lock held by a live process is waited for and then used; a lock left by a dead process is taken over',async()=>{
-  const dir=scratchFolder(),lock=path.join(dir,limiterId('uspto','k')+'.lock');
+  const dir=scratchFolder(),lock=lockPath(dir,'uspto','k');
   fs.writeFileSync(lock,JSON.stringify({pid:process.pid,token:'other',at:Date.now()}));
   const released=sleep(600).then(()=>fs.unlinkSync(lock));
   const t0=Date.now();await withProviderSlot({dir,provider:'uspto',key:'k'},async()=>1);await released;
@@ -94,7 +98,7 @@ test('a lock held by a live process is waited for and then used; a lock left by 
 });
 
 test('releasing never removes a lock that another process has since taken',async()=>{
-  const dir=scratchFolder(),lock=path.join(dir,limiterId('uspto','k')+'.lock');
+  const dir=scratchFolder(),lock=lockPath(dir,'uspto','k');
   await withProviderSlot({dir,provider:'uspto',key:'k',staleMs:30000},async()=>{fs.writeFileSync(lock,JSON.stringify({pid:process.pid,token:'someone-else',at:Date.now()}));});
   assert.ok(fs.existsSync(lock),'a foreign lock must survive our release');
 });
@@ -144,7 +148,7 @@ test('after an HTTP 429 in one process, another process waits out the cooldown i
 
 test('a waiting process does not throw: it sleeps until the cooldown ends, then calls',async()=>{
   const s=childSetup({rules:[okRule()]});
-  const id=limiterId('uspto','fixture-key-for-child-tests'),dir=path.join(s.data,'limiter');fs.mkdirSync(dir,{recursive:true});
+  const dir=path.join(s.data,'limiter');fs.mkdirSync(dir,{recursive:true});const id=limiterId('uspto','fixture-key-for-child-tests',limiterSalt(dir));
   const until=Date.now()+1500;fs.writeFileSync(path.join(dir,id+'.json'),JSON.stringify({requests:[],lastStartAt:0,cooldownUntil:until,consecutive429:1}));
   const r=await runChild(s,{input:searchRequest});
   assert.equal(r.code,0,r.stdout+r.stderr);assert.ok(s.requests()[0].t0>=until-50,'called before the cooldown ended');
@@ -153,7 +157,7 @@ test('a waiting process does not throw: it sleeps until the cooldown ends, then 
 test('a holder that dies mid-call does not block the key forever',async()=>{
   const s=childSetup({rules:[okRule({delayMs:60000})]});
   const hung=runChild(s,{input:searchRequest,hold:true});
-  const lock=path.join(s.data,'limiter',limiterId('uspto','fixture-key-for-child-tests')+'.lock');
+  const lock=lockPath(path.join(s.data,'limiter'),'uspto','fixture-key-for-child-tests');
   for(let i=0;i<100&&!fs.existsSync(lock);i++)await sleep(50);
   assert.ok(fs.existsSync(lock),'the first process should hold the lock');
   hung.child.kill('SIGKILL');await hung.done;
@@ -163,11 +167,87 @@ test('a holder that dies mid-call does not block the key forever',async()=>{
   assert.equal(r.code,0,r.stdout+r.stderr);assert.ok(Date.now()-t0<15000);
 });
 
-test('a long call keeps its lock fresh, so a waiter with a short stale timeout does not take it over',async()=>{
-  const s=childSetup({config:{limiterStaleLockMs:1500},rules:[okRule({delayMs:3500})]});
-  const a=runChild(s,{input:searchRequest,hold:true});
+test('a long call keeps its lock fresh, so a waiter does not take it over while the call is still running',async()=>{
+  const s=childSetup({config:{limiterStaleLockMs:5000},rules:[okRule()]});      // 5000 is the smallest accepted setting
+  const a=runChild(s,{input:searchRequest,hold:true,env:{PRH_MOCK_RULES:JSON.stringify([okRule({delayMs:7500})])}});
   await sleep(700);
   const b=runChild(s,{input:searchRequest});
   const [ra,rb]=await Promise.all([a.done,b]);
   assert.deepEqual([ra.code,rb.code],[0,0]);assert.equal(overlaps(s.requests()),false,'the waiter took the lock while the first call was still running');
+});
+
+// ---- review fixes: state errors, lost locks, sweeping, takeover mutex ----
+
+test('a damaged or unreadable state file is an error (local_state), not an empty state',async()=>{
+  const dir=scratchFolder(),opts={dir,provider:'uspto',key:'k'},state=path.join(dir,limiterId('uspto','k',limiterSalt(dir))+'.json');
+  fs.writeFileSync(state,'{not json');
+  const damaged=await withProviderSlot(opts,async()=>1).then(()=>null,e=>e);
+  assert.equal(damaged?.code,'local_state');assert.match(damaged.message,/damaged/);
+  fs.rmSync(state);fs.mkdirSync(state);                       // reading a directory fails with EISDIR, not ENOENT
+  const unreadable=await withProviderSlot(opts,async()=>1).then(()=>null,e=>e);
+  assert.equal(unreadable?.code,'local_state');assert.match(unreadable.message,/cannot be read/);
+  fs.rmdirSync(state);assert.equal(await withProviderSlot(opts,async()=>'fine'),'fine');   // a missing file is simply empty
+});
+
+test('if the 429 cooldown cannot be saved the call fails instead of carrying on',async()=>{
+  const dir=scratchFolder(),state=path.join(dir,limiterId('uspto','k',limiterSalt(dir))+'.json');
+  const e=await withProviderSlot({dir,provider:'uspto',key:'k'},async slot=>{fs.rmSync(state,{force:true});fs.mkdirSync(state);slot.rateLimited('9');return 'sent';}).then(()=>null,x=>x);
+  assert.equal(e?.code,'local_state');assert.match(e.message,/could not be saved/);
+  fs.rmdirSync(state);
+});
+
+test('a holder that has lost its lock neither overwrites newer state nor releases the successor\'s lock, and says so if a 429 cannot be recorded',async()=>{
+  const dir=scratchFolder(),id=limiterId('uspto','k',limiterSalt(dir)),lock=path.join(dir,id+'.lock'),state=path.join(dir,id+'.json');
+  const newer={requests:[],lastStartAt:1,cooldownUntil:123456789,consecutive429:7};
+  const r=await withProviderSlot({dir,provider:'uspto',key:'k'},async()=>{
+    fs.writeFileSync(lock,JSON.stringify({pid:process.pid,token:'successor',at:Date.now()}));fs.writeFileSync(state,JSON.stringify(newer));return 'done';
+  });
+  assert.equal(r,'done');assert.deepEqual(JSON.parse(fs.readFileSync(state,'utf8')),newer);assert.equal(JSON.parse(fs.readFileSync(lock,'utf8')).token,'successor');
+  const e=await withProviderSlot({dir,provider:'uspto',key:'k',maxWaitMs:200},async()=>1).then(()=>null,x=>x);assert.equal(e?.code,'local_busy');   // the successor's lock still stands
+  fs.unlinkSync(lock);
+  const lost=await withProviderSlot({dir,provider:'uspto',key:'k'},async slot=>{fs.writeFileSync(lock,JSON.stringify({pid:process.pid,token:'successor2',at:Date.now()}));slot.rateLimited('5');}).then(()=>null,x=>x);
+  assert.equal(lost?.code,'local_state');assert.match(lost.message,/lock was lost/);fs.unlinkSync(lock);
+});
+
+test('if the lock is taken over while a caller waits for its turn, the caller queues again instead of sending',async()=>{
+  const dir=scratchFolder(),id=limiterId('uspto','k',limiterSalt(dir)),lock=path.join(dir,id+'.lock'),state=path.join(dir,id+'.json');
+  fs.writeFileSync(state,JSON.stringify({requests:[],lastStartAt:0,cooldownUntil:Date.now()+300,consecutive429:1}));
+  let calls=0,foreignReleased=0;
+  const out=await withProviderSlot({dir,provider:'uspto',key:'k',sleep:async()=>{
+    fs.writeFileSync(lock,JSON.stringify({pid:process.pid,token:'taker',at:Date.now()}));        // somebody replaced our lock during the wait
+    setTimeout(()=>{foreignReleased=Date.now();fs.unlinkSync(lock);},400);
+  }},async()=>{calls++;assert.ok(foreignReleased>0&&Date.now()>=foreignReleased,'sent while the other holder still held the lock');return 'sent';});
+  assert.equal(out,'sent');assert.equal(calls,1);
+});
+
+test('a lock file that can never be created (permission problem) fails with the real error, not "busy" after 20 minutes',async()=>{
+  const dir=scratchFolder(),real=fs.openSync;
+  fs.openSync=(p,flag,...rest)=>{if(String(p).endsWith('.lock')&&flag==='wx')throw Object.assign(new Error('denied'),{code:'EACCES'});return real(p,flag,...rest);};
+  try{
+    const t0=Date.now(),e=await withProviderSlot({dir,provider:'uspto',key:'k',maxWaitMs:600000},async()=>1).then(()=>null,x=>x);
+    assert.equal(e?.code,'EACCES');assert.ok(Date.now()-t0<30000);
+  }finally{fs.openSync=real;}
+});
+
+test('leftover .tmp and .stale.* files are swept, recent ones are not',async()=>{
+  const dir=scratchFolder();limiterSalt(dir);
+  const old=new Date(Date.now()-300000),mk=(n,when)=>{const p=path.join(dir,n);fs.writeFileSync(p,'x');fs.utimesSync(p,when,when);return p;};
+  const a=mk('x.json.abc123.tmp',old),b=mk('x.lock.stale.0123abcd',old),c=mk('y.json.def456.tmp',new Date()),d=mk('keep.json',old);
+  await withProviderSlot({dir,provider:'uspto',key:'k'},async()=>1);
+  assert.ok(!fs.existsSync(a)&&!fs.existsSync(b));assert.ok(fs.existsSync(c)&&fs.existsSync(d));
+});
+
+test('a stuck takeover file expires on its own and does not block a takeover for good',async()=>{
+  const dir=scratchFolder(),lock=lockPath(dir,'uspto','k'),old=new Date(Date.now()-120000);
+  fs.writeFileSync(lock,JSON.stringify({pid:999999,token:'dead',at:0}));fs.utimesSync(lock,old,old);
+  fs.writeFileSync(lock+'.takeover','x');fs.utimesSync(lock+'.takeover',new Date(Date.now()-60000),new Date(Date.now()-60000));
+  const t0=Date.now();assert.equal(await withProviderSlot({dir,provider:'uspto',key:'k'},async()=>'ok'),'ok');assert.ok(Date.now()-t0<3000);
+  assert.ok(!fs.existsSync(lock+'.takeover'));
+});
+
+test('the Retry-After of a long ban is honoured in full (up to 24 hours), not cut to 15 minutes',async()=>{
+  const dir=scratchFolder(),waits=[];
+  await withProviderSlot({dir,provider:'uspto',key:'k'},async slot=>slot.rateLimited('7200'));
+  const e=await withProviderSlot({dir,provider:'uspto',key:'k',maxWaitMs:1000,sleep:async ms=>waits.push(ms)},async()=>1).then(()=>null,x=>x);
+  assert.equal(e?.code,'local_busy');assert.ok(e.retryAfterSeconds>7100,'reported wait '+e.retryAfterSeconds);
 });

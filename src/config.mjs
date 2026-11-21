@@ -2,6 +2,7 @@
 // read from environment variables at call time (see src/direct.mjs and .env.example).
 import {parseJsonText} from './json-text.mjs';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
@@ -17,7 +18,8 @@ export const configDefaults=Object.freeze({
   directMinIntervalMs:{uspto:1000,epo:1000,govinfo:3600,courtlistener:1000,bigquery:1000,public:1000},
   maxRequestsPerHour:{uspto:1800,epo:1800,govinfo:1800,courtlistener:1800,bigquery:1800}, // per provider and key, shared by every Hub process using this data folder; 0 = unlimited. Local safeguard, not the provider's quota
   limiterMaxWaitMs:1200000,                 // longest a call waits for its turn, the pacing gap or a 429 cooldown before failing with local_busy
-  limiterStaleLockMs:30000,                 // a call lock not refreshed for this long (holder died or hung) is taken over
+  limiterStaleLockMs:30000,                 // a call lock not refreshed for this long (holder died or hung) is taken over; at least 5000
+  limiterDir:'',                            // empty = one per-user folder (%LOCALAPPDATA%\PatentResearchHub\limiter, or $XDG_STATE_HOME/patent-research-hub/limiter); PATENT_RESEARCH_LIMITER_DIR overrides
   oaRejectionsAdapter:'legacy-rejections-v2', // which USPTO service answers the oa-rejections route (src/oa-adapter.mjs)
   courtlistenerEnabled:false,               // CourtListener stays off until enabled AND terms acknowledged
   courtlistenerInternalUseAllowed:false,    // set true only after reading https://free.law/membership/allowed-api-usage/
@@ -41,6 +43,39 @@ export const configDefaults=Object.freeze({
   modelProxyPort:8769,                      // n8n transport only
 });
 
+// The cross-process limiter keeps its state in ONE per-user folder that does not depend on the data folder, the install folder or
+// the configuration file, so every Hub process of this user (MCP server, CLI, gateway children, tools that import the Hub)
+// takes turns at the same lock. Override with PATENT_RESEARCH_LIMITER_DIR or limiterDir only if you know all callers agree.
+export function limiterDir(config={},env=process.env){
+  const explicit=env.PATENT_RESEARCH_LIMITER_DIR||process.env.PATENT_RESEARCH_LIMITER_DIR;
+  if(explicit)return path.resolve(explicit);
+  if(config.limiterDir)return path.resolve(installRoot,config.limiterDir);
+  if(process.platform==='win32')return path.join(process.env.LOCALAPPDATA||path.join(os.homedir(),'AppData','Local'),'PatentResearchHub','limiter');
+  return path.join(process.env.XDG_STATE_HOME||path.join(os.homedir(),'.local','state'),'patent-research-hub','limiter');
+}
+
+const LIMITED_PROVIDERS=['uspto','epo','govinfo','courtlistener','bigquery'];
+const number=(value,name,min,integer=false)=>{
+  if(typeof value!=='number'||!Number.isFinite(value)||value<min||(integer&&!Number.isInteger(value)))
+    throw new Error(`config.json: ${name} must be a ${integer?'whole ':''}number of at least ${min} (got ${JSON.stringify(value)}); a text value such as "1s" is not accepted`);
+  return value;
+};
+// The effective limits, validated. The one place that turns settings into numbers: the direct transport and
+// `gateway --limits` both use it, so what is reported is what is enforced. Throws on anything that is not a finite,
+// non-negative number (a bad value must never silently switch pacing or the 429 holdback off).
+export function effectiveLimits(config={}){
+  for(const key of ['directMinIntervalMs','maxRequestsPerHour'])
+    if(config[key]!==undefined&&(!config[key]||typeof config[key]!=='object'||Array.isArray(config[key])))throw new Error(`config.json: ${key} must be an object with one number per provider`);
+  const intervals={...configDefaults.directMinIntervalMs,...(config.directMinIntervalMs||{})},caps={...configDefaults.maxRequestsPerHour,...(config.maxRequestsPerHour||{})};
+  for(const [id,value] of Object.entries(intervals))number(value,`directMinIntervalMs.${id}`,0);
+  for(const [id,value] of Object.entries(caps))number(value,`maxRequestsPerHour.${id}`,0,true);
+  const providers={};
+  for(const id of LIMITED_PROVIDERS)providers[id]={maxRequestsPerHour:caps[id]??0,minIntervalMs:intervals[id]??1000,concurrentCallsPerKey:1};
+  return {providers,publicMinIntervalMs:intervals.public??1000,
+    maxWaitMs:number(config.limiterMaxWaitMs===undefined?configDefaults.limiterMaxWaitMs:config.limiterMaxWaitMs,'limiterMaxWaitMs',0),
+    staleMs:number(config.limiterStaleLockMs===undefined?configDefaults.limiterStaleLockMs:config.limiterStaleLockMs,'limiterStaleLockMs',5000)};
+}
+
 export function configPath(env=process.env){return env.PATENT_RESEARCH_CONFIG?path.resolve(env.PATENT_RESEARCH_CONFIG):path.join(installRoot,'config.json');}
 
 export function readConfig({env=process.env,file=configPath(env)}={}){
@@ -54,6 +89,8 @@ export function readConfig({env=process.env,file=configPath(env)}={}){
   if(env.BIGQUERY_PROJECT_ID)config.googleBigQueryProjectId=env.BIGQUERY_PROJECT_ID;
   if(env.RESEARCH_GATEWAY_AUTH_FILE)config.gatewayAuthFile=env.RESEARCH_GATEWAY_AUTH_FILE;
   if(!['direct','n8n'].includes(config.transport))throw new Error('transport must be "direct" or "n8n"');
+  for(const key of ['directMinIntervalMs','maxRequestsPerHour'])if(local[key]!==undefined&&(!local[key]||typeof local[key]!=='object'||Array.isArray(local[key])))throw new Error(`config.json: ${key} must be an object with one number per provider`);
+  effectiveLimits(config);
   return config;
 }
 

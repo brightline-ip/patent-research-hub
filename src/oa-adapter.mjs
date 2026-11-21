@@ -9,7 +9,7 @@
 //
 // Contract of an adapter:
 //   buildRequest(body)            -> {url, method, body, contentType}   (throws on anything outside the bounded contract)
-//   packageResponse(action, httpStatus, text) -> {text, status, contentType}
+//   packageResponse(action, httpStatus, text, {start}) -> {text, status, contentType}   (start = the requested offset)
 // packageResponse takes the status from the HTTP response, never from the body, and fails closed: a body that does not
 // have the documented shape is an error (502), never a successful result with zero records.
 import {rejectionsRequest} from './oa-rejections.mjs';
@@ -17,7 +17,7 @@ import {rejectionsRequest} from './oa-rejections.mjs';
 const clean=value=>String(value??'').replace(/[\u0000-\u001f]/g,' ').slice(0,300);
 const errorEnvelope=(status,providerStatus,message)=>({text:JSON.stringify({provider_status:providerStatus,provider_message:clean(message)}),status,contentType:'application/json'});
 
-function legacyPackage(action,httpStatus,text){
+function legacyPackage(action,httpStatus,text,requested={}){
   const status=Number(httpStatus);
   let body=null;
   try{const parsed=JSON.parse(text);if(parsed&&typeof parsed==='object'&&!Array.isArray(parsed))body=parsed;}catch{}
@@ -34,7 +34,7 @@ function legacyPackage(action,httpStatus,text){
   }
   const r=body.response;
   // numFound and docs must both be present and agree in kind; an object without them is never read as "no records".
-  if(!r||typeof r!=='object'||Array.isArray(r)||!Number.isSafeInteger(r.numFound)||r.numFound<0||!Array.isArray(r.docs)||(r.numFound>0&&r.docs.length===0&&!(Number(r.start)>=r.numFound)))
+  if(!r||typeof r!=='object'||Array.isArray(r)||!Number.isSafeInteger(r.numFound)||r.numFound<0||!Array.isArray(r.docs)||(r.numFound>0&&r.docs.length===0&&!(Number(requested.start)>=r.numFound)))
     return errorEnvelope(502,null,'unexpected response shape (no response.numFound and response.docs)');
   return {text:JSON.stringify(body),status:200,contentType:'application/json'};
 }
@@ -44,7 +44,7 @@ export const oaAdapters=Object.freeze({
 });
 export function selectOaAdapter(config={}){
   const id=config.oaRejectionsAdapter||'legacy-rejections-v2';
-  const adapter=oaAdapters[id];
+  const adapter=Object.hasOwn(oaAdapters,id)?oaAdapters[id]:null;
   if(!adapter)throw new Error(`Unknown oaRejectionsAdapter "${String(id).slice(0,60)}"; this release supports: ${Object.keys(oaAdapters).join(', ')}`);
   return adapter;
 }
