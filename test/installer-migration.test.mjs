@@ -26,7 +26,7 @@ const oldConfig=(caps={uspto:120,epo:120,govinfo:120,courtlistener:120,bigquery:
 ${Object.entries(caps).map(([k,v])=>`    "${k}": ${v}`).join(',\n')}
   },
   "courtlistenerEnabled": false,
-  "dataDir": "C:\\\\Users\\\\someone\\\\data"
+  "dataDir": "D:\\\\hubdata"
 }
 `;
 function migrate(text,previous){
