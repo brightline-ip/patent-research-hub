@@ -313,6 +313,7 @@ export async function withProviderSlot({dir,provider,key,max=0,minIntervalMs=0,s
         state.lastStartAt=now;
         if(!lock.confirm())return LOST;                           // lost the lock while waiting: write nothing, queue again
         saveState(stateFile,state);
+        state.lastStartAt=Date.now();                             // spacing is measured from the real start of the call (the save above can take a while)
         const slot={rl:null,rateLimited(header){this.rl=parseRetryAfterMs(header);}};
         let result,failure,threw=true;
         try{result=await fn(slot);threw=false;}catch(e){failure=e;}
