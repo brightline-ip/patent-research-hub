@@ -90,3 +90,14 @@ test('other CLI commands still run through the same entry point',async()=>{
   const r=spawnSync(process.execPath,[path.join(import.meta.dirname,'..','src','cli.mjs'),'doctor'],{env:{...process.env,PATENT_RESEARCH_DATA_DIR:path.join(dir,'d'),PATENT_RESEARCH_CONFIG:path.join(dir,'none.json'),USPTO_API_KEY:''},encoding:'utf8',windowsHide:true});
   assert.equal(r.status,0,r.stderr);assert.ok(JSON.parse(r.stdout).providers.some(p=>p.provider==='uspto'));
 });
+
+test('gateway --limits prints the effective limits from configuration only: no key, no request, no files',async()=>{
+  const s=childSetup({config:{maxRequestsPerHour:{uspto:77}},rules:[okRule]});
+  const r=await runChild(s,{args:['--limits'],env:{USPTO_API_KEY:''}});
+  assert.equal(r.code,0,r.stdout+r.stderr);
+  assert.equal(r.json.providers.uspto.max_requests_per_hour,77);assert.equal(r.json.providers.epo.max_requests_per_hour,1800);
+  assert.equal(r.json.providers.uspto.concurrent_calls_per_key,1);assert.equal(r.json.providers.uspto.min_interval_ms,0);
+  assert.equal(r.json.limiter_applies,true);assert.equal(r.json.min_wait_after_429_seconds,5);assert.match(r.json.hub_version,/^\d+\.\d+\.\d+$/);
+  assert.deepEqual(s.requests(),[]);assert.deepEqual(fs.readdirSync(s.data),[]);
+  assert.equal((await runChild(s,{args:['--limits','uspto']})).code,64);
+});

@@ -12,11 +12,11 @@
     "public": 1000
   },
   "maxRequestsPerHour": {
-    "uspto": 120,
-    "epo": 120,
-    "govinfo": 120,
-    "courtlistener": 120,
-    "bigquery": 120
+    "uspto": 1800,
+    "epo": 1800,
+    "govinfo": 1800,
+    "courtlistener": 1800,
+    "bigquery": 1800
   },
   "limiterMaxWaitMs": 1200000,
   "limiterStaleLockMs": 30000,

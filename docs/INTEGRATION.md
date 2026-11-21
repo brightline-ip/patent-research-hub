@@ -57,6 +57,7 @@ node src/cli.mjs gateway <route> --json-in           (from source: keys from you
 - **Routes:** `uspto`, `ptab`, `oa-rejections`, `ptab-files`, `application-documents`, `application-pdf`, `govinfo`,
   `courtlistener`, `epo`, `public`, `reference-index`. BigQuery routes are not offered (they can cost money and have their own
   CLI commands and caps); neither are the n8n-only routes.
+- **Effective limits.** `Hub.cmd gateway --limits` (no route, no stdin) prints JSON and exits 0: `hub_version`, `transport`, `limiter_applies`, per provider `max_requests_per_hour` (0 = unlimited), `min_interval_ms` and `concurrent_calls_per_key` (1), plus `limiter_max_wait_ms`, `limiter_stale_lock_ms` and `min_wait_after_429_seconds` (5). It reads configuration only: no key is read, no request is made, nothing is written. A caller can use it for time estimates (a dry run should divide by the lower of the cap and 3600000 / `min_interval_ms`). An older Hub rejects `--limits` like any unknown usage (non-zero exit, no `error` object).
 - **Waiting.** The command takes its turn behind other Hub processes using the same key (see "Provider quotas"), so a call can
   take longer than the provider's own response time. Set your own timeout above `limiterMaxWaitMs` plus the download time, or
   lower `limiterMaxWaitMs` in `config.json`.
@@ -74,7 +75,7 @@ node src/cli.mjs gateway <route> --json-in           (from source: keys from you
 key in `X-API-KEY`. Only 8-digit application numbers are accepted; the criteria are built by the Hub. The HTTP status comes from
 the response. A 2xx answer must contain `response.numFound` (a non-negative integer) and `response.docs` (an array), or, for
 the field list, `fields`; anything else, including a 2xx body that carries an error code, becomes 502, never zero records.
-A 404 is passed through as 404 (only the ODP application search treats "no matching records" as a zero-count result).
+A 404 is passed through as 404 (only the ODP application search treats "no matching records" as a zero-count result). An empty result is expected to be a normal 200-shaped body with `numFound: 0`: the n8n route returned exactly that for an application with no office actions in a live probe, but that is inferred and not proven for the direct route.
 
 The USPTO labels this API **legacy**. The route sits behind an adapter (`src/oa-adapter.mjs`, selected by the
 `oaRejectionsAdapter` setting). The newer Office Action Search API is not implemented: its endpoint and field list could not be
@@ -111,7 +112,7 @@ upgrading the Hub.
 The Hub's direct transport applies local safeguards to every keyed provider and key, shared by all Hub processes that use
 the same data folder (state in `<dataDir>/limiter`): **one call at a time** (a caller that finds the key busy waits for its
 turn), a minimum spacing between request starts (`directMinIntervalMs`), a request-count cap per rolling hour
-(`maxRequestsPerHour`, default 120 for USPTO, EPO, GovInfo, CourtListener and BigQuery; `0` disables it) and a cooldown after
+(`maxRequestsPerHour`, default 1800 for USPTO, EPO, GovInfo, CourtListener and BigQuery; `0` disables it) and a cooldown after
 HTTP 429 (at least 5 seconds, longer if `Retry-After` says so, doubling on repeats, at most 15 minutes). Only an exhausted
 hourly cap raises an error, with the code `local_limit` (property `retryAfterSeconds`, `limit`) and the wait time in the
 message; waiting longer than `limiterMaxWaitMs` raises `local_busy`. The README section "USPTO key rules and the Hub's

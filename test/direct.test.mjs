@@ -134,7 +134,7 @@ test('maxRequestsPerHour stops a keyed provider with a clear local error and lea
     await assert.rejects(hub.query('odp','c',{limit:2}),/Local request limit reached for uspto: 2 requests in the last hour/);
   });
   assert.equal(calls,2);
-  assert.equal(readConfig({env:{PATENT_RESEARCH_CONFIG:path.join(os.tmpdir(),'absent-config.json')}}).maxRequestsPerHour.uspto,120);
+  assert.equal(readConfig({env:{PATENT_RESEARCH_CONFIG:path.join(os.tmpdir(),'absent-config.json')}}).maxRequestsPerHour.uspto,1800);
 });
 
 test('Patent Genius gateway contract: callGateway returns provider status instead of throwing on 413',async()=>{

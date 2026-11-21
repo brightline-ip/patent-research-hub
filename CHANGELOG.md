@@ -26,6 +26,7 @@ has been run against the live USPTO API.
   on stdin, provider envelope on stdout, exit codes 0, 1, 2 (`not_configured`), 64, 75. The keys exist only in that child; no
   module named by the environment (`FRAME_GATEWAY_MODULE`-style) is loaded; the Hub database is not opened. Documented as the
   supported integration in `docs/INTEGRATION.md`. `src/cli.mjs` now dispatches to `src/cli-main.mjs` (the unchanged command line).
+- **Default hourly cap raised to 1800 per key** (one call every 2 s on average, with the 1 s minimum spacing and one call at a time unchanged), well inside the portal's published rates. New `Hub.cmd gateway --limits` prints the effective limits as JSON (configuration only, no key use) so callers can estimate run times.
 - **Docs.** README, SECURITY and INTEGRATION describe the route, the limits and the USPTO portal rules (ID.me-verified key, one
   call at a time per key, 4 to 15 requests per second, at least 5 seconds after a 429, keys unused for 90 days are deleted).
 - **Installer.** Robocopy in the uninstaller's folder removal and in Setup's program-file copy now runs with `/R:1 /W:1`: with
@@ -39,7 +40,7 @@ has been run against the live USPTO API.
 - Extract the new zip and run `Setup.cmd` again over the existing install: it replaces the program folder and `Hub.cmd` and keeps
   your data folder, `config.json` and `keys.env` (Repair does not copy new program files). No setting needs to change.
 - `maxRequestsPerHour` now counts requests from all Hub processes that share the data folder, not just one process. A script that
-  stayed under 120 per process may now hit `local_limit`; raise the setting or wait.
+  stayed under the old per-process count may now hit `local_limit`. The default cap is now 1800 per hour per key (was 120 per process); lower it in `config.json` if you want to be more cautious.
 - Calls with the same key now take turns. A second process no longer runs in parallel; it waits (up to `limiterMaxWaitMs`).
 - A 429 is returned to the caller instead of being retried by the Hub's GET retry; wait at least 5 seconds before any retry.
 - A new `<dataDir>/limiter` folder appears. It holds counters and lock files (a salted hash of the key, never the key); it is safe to

@@ -177,7 +177,7 @@ or the file named by `PATENT_RESEARCH_CONFIG`. Credentials are **only** read fro
 | `googleBigQueryBillingMode` | `disabled` | `sandbox-no-billing` (BigQuery sandbox, no billing account) or `billing-enabled-capped` (you accept possible charges up to the caps). |
 | `googleBigQueryPerQueryMaxBytes` | `26843545600` (25 GiB) | Sent as `maximumBytesBilled`; a dry-run estimate above it is refused before execution. |
 | `googleBigQueryMonthlyTrackedMaxBytes` | `274877906944` (256 GiB) | Calendar-month budget tracked locally for queries made by this tool only. |
-| `maxRequestsPerHour` | 120 per keyed provider (USPTO, EPO, GovInfo, CourtListener, BigQuery); 0 = unlimited | Local request-count limit per provider and key, **shared by every Hub process that uses the same data folder** (kept in `<dataDir>/limiter`). Not the provider's own quota. When it is used up, calls fail with the error code `local_limit` and the wait time. |
+| `maxRequestsPerHour` | 1800 per keyed provider (USPTO, EPO, GovInfo, CourtListener, BigQuery); 0 = unlimited | Local request-count limit per provider and key, **shared by every Hub process that uses the same data folder** (kept in `<dataDir>/limiter`). Not the provider's own quota. 1800 an hour (one every 2 s on average) stays well inside the portal's published rates; you may lower it. `Hub.cmd gateway --limits` prints the effective value. When it is used up, calls fail with the error code `local_limit` and the wait time. |
 | `limiterMaxWaitMs` | `1200000` (20 min) | The longest a call waits for its turn, the pacing gap or a 429 cooldown before it fails with `local_busy` and the wait time. |
 | `limiterStaleLockMs` | `30000` | A call lock that nobody has refreshed for this long (the holder died or hung) is taken over. |
 | `oaRejectionsAdapter` | `legacy-rejections-v2` | Which USPTO service answers the `oa-rejections` route. Only the legacy Rejections API is implemented. |
@@ -238,7 +238,7 @@ What the Hub does about it, for every keyed provider (USPTO, EPO, GovInfo, Court
   **waits** for its turn; it does not fail. A lock whose holder died, or that has not been refreshed for
   `limiterStaleLockMs`, is taken over. The key itself is never written there (files are named by a salted hash).
 - **Spacing and an hourly cap.** `directMinIntervalMs` (1 s for USPTO by default, far below the published rate) and
-  `maxRequestsPerHour` (120 by default) apply across processes. Only when the hourly cap is really used up does a call fail,
+  `maxRequestsPerHour` (1800 by default) apply across processes. Only when the hourly cap is really used up does a call fail,
   with the error code `local_limit` and the wait time in the message (`retry_after_seconds` in the `gateway` command).
 - **After a 429** the Hub returns the 429 to the caller (with `retryAfterSeconds`) and holds the key back, for every process,
   for at least 5 seconds, for as long as `Retry-After` says if that is longer, and twice as long after each further 429
@@ -257,7 +257,7 @@ an error (502), never "zero records". The records have no examiner name and no c
 coverage start and the reporting lag are not fixed: compute them from the data. The USPTO marks this API **legacy**; the
 code sits behind a small adapter (`src/oa-adapter.mjs`) so a move to the newer Office Action Search API is a contained
 change, but that API is not implemented (see [docs/INTEGRATION.md](docs/INTEGRATION.md#office-action-rejections-and-the-legacy-api)).
-It is reachable through the module gateway and the `gateway` command below, not through an MCP tool or a CLI query command.
+The documentation does not say how an empty result is answered. The n8n route returned a normal body with `numFound: 0` for an application with no office actions in a live probe, so the provider appears to answer with a normal 200-shaped body, but that is inferred and not proven for the direct route; a 404 is therefore passed through as a 404 and never read as zero records. It is reachable through the module gateway and the `gateway` command below, not through an MCP tool or a CLI query command.
 
 ## Using the Hub from another tool (`gateway` command)
 
@@ -269,7 +269,7 @@ JSON request to stdin and reads one JSON document from stdout. `Hub.cmd` loads `
 ## Provider terms
 
 Each user registers for and uses their own credentials and must follow each provider's terms and rate limits. The Hub spaces
-requests (`directMinIntervalMs`) and stops at `maxRequestsPerHour` per provider and key (default 120, shared by all Hub processes on one data folder); both are
+requests (`directMinIntervalMs`) and stops at `maxRequestsPerHour` per provider and key (default 1800, shared by all Hub processes on one data folder); both are
 local safeguards, not your provider's quota (see [docs/INTEGRATION.md](docs/INTEGRATION.md#provider-quotas)):
 [USPTO Open Data Portal](https://data.uspto.gov/apis/getting-started),
 [EPO OPS terms](https://www.epo.org/en/service-support/ordering/terms-and-conditions/ops-terms-and-conditions) and
