@@ -139,7 +139,7 @@ test('the hourly cap is shared by processes: the extra ones fail with local_limi
 });
 
 test('after an HTTP 429 in one process, another process waits out the cooldown instead of calling at once',async()=>{
-  const s=childSetup({config:{limiterMaxWaitMs:1500},rules:[okRule({status:429,headers:{'retry-after':'1'},body:{code:429,message:'Too Many Requests'},times:1}),okRule()]});
+  const s=childSetup({config:{limiterMaxWaitMs:1500},rules:[okRule({status:429,headers:{'retry-after':'60'},body:{code:429,message:'Too Many Requests'},times:1}),okRule()]});   // a long Retry-After keeps the test independent of how slow the machine is
   const first=await runChild(s,{input:searchRequest});
   assert.equal(first.json.status,429);assert.ok(first.json.retryAfterSeconds>=5);
   const second=await runChild(s,{input:searchRequest});   // patience (1.5 s) is shorter than the 5 s cooldown
