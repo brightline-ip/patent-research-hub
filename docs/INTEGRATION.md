@@ -97,7 +97,7 @@ written against that contract.
 
 ### Imports versus the gateway command
 
-Prefer the `gateway` command for every keyed call. A program that imports `gateway.mjs`, `direct.mjs` or `hub.mjs` runs the same
+Prefer the `gateway` command for every keyed call. (A caller that runs in a sandboxed or packaged app with a private view of `%LOCALAPPDATA%` would use a different limiter folder from `Hub.cmd`; started as a child of the Hub, the gateway command always uses the Hub's.) A program that imports `gateway.mjs`, `direct.mjs` or `hub.mjs` runs the same
 limiter (one per-user folder, so it takes turns with `Hub.cmd`), but it holds your keys in its own memory, must load `keys.env` itself,
 and must be configured with the same settings (`config.json`, `PATENT_RESEARCH_CONFIG`, `PATENT_RESEARCH_LIMITER_DIR`) as the Hub, or
 it can apply different limits. The `gateway` command has none of these problems.

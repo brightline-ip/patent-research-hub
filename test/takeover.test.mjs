@@ -1,6 +1,7 @@
 // Stale-lock takeover under contention: many processes find the same stale lock at the same moment. At most one of them may
 // hold the lock at any time. (With the earlier unserialised takeover, two processes held it in about 3 of 120 rounds.)
 // PRH_LIMITER_MODULE can point the test at another copy of limiter.mjs to check a suspect version.
+import './setup.mjs';  // temporary data and limiter folders, also when this file is run on its own
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

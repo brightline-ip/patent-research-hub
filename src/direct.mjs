@@ -34,7 +34,7 @@ function sourceUrls(route){
 
 // Pacing and limits. Keyed providers (uspto, epo, govinfo, courtlistener, bigquery) go through the cross-process limiter in
 // limiter.mjs: one call at a time per key, minimum spacing (config.directMinIntervalMs[provider]), a request cap per hour
-// (config.maxRequestsPerHour[provider]) and a cooldown after HTTP 429, all kept in <dataDir>/limiter so separate Hub
+// (config.maxRequestsPerHour[provider]) and a cooldown after HTTP 429, all kept in one per-user limiter folder (config.mjs limiterDir) so separate Hub
 // processes share them. Keyless "public" pages keep a simple in-process spacing.
 const pacing=new WeakMap();
 const keyedProviders=new Set(['uspto','epo','govinfo','courtlistener','bigquery']);
@@ -77,9 +77,11 @@ function remember(key,token,expiresIn,ctx){
   tokenCache.set(key,{token,expiresAt:ctx.now()+(Number.isFinite(seconds)&&seconds>0?Math.min(seconds,86400):300)*1000});
   return token;
 }
+// A token request that is answered with HTTP 429 must start the limiter's cooldown like any other call.
+const noteTokenLimit=(slot,promise)=>promise.catch(e=>{if(e?.status===429)slot.rateLimited(e.retryAfter);throw e;});
 async function tokenRequest(url,form,headers,ctx){
   const r=await request(url,{method:'POST',body:new URLSearchParams(form).toString(),headers:{'Content-Type':'application/x-www-form-urlencoded',Accept:'application/json',...headers},timeout:ctx.config.requestTimeoutMs,maxBytes:65536,fetchImpl:ctx.fetchImpl,allowHttpError:true});
-  if(r.status!==200)throw new Error(`Provider token request failed (HTTP ${r.status}); check the credential`);
+  if(r.status!==200)throw Object.assign(new Error(`Provider token request failed (HTTP ${r.status}); check the credential`),{status:r.status,retryAfter:r.retryAfter});
   try{return JSON.parse(r.text);}catch{throw new Error('Provider token response was not JSON');}
 }
 
@@ -89,7 +91,7 @@ export async function epoAccessToken(options={},{refresh=false}={}){
   if(!key||!secret){if(ctx.env.EPO_ACCESS_TOKEN)return ctx.env.EPO_ACCESS_TOKEN;requireProvider('epo',ctx);}
   const cacheKey='epo:'+digest(key+'\n'+secret);
   if(!refresh){const hit=cached(cacheKey,ctx);if(hit)return hit;}
-  const body=await limited('epo',ctx,slot=>tokenRequest(EPO_TOKEN_URL,{grant_type:'client_credentials'},{Authorization:'Basic '+Buffer.from(key+':'+secret).toString('base64')},ctx));
+  const body=await limited('epo',ctx,slot=>noteTokenLimit(slot,tokenRequest(EPO_TOKEN_URL,{grant_type:'client_credentials'},{Authorization:'Basic '+Buffer.from(key+':'+secret).toString('base64')},ctx)));
   return remember(cacheKey,body.access_token,body.expires_in,ctx);
 }
 
@@ -134,7 +136,7 @@ async function sourceRoute(route,body,ctx,maxBytes){
   if(route==='epo')headers.Accept=validated.url.includes('/classification/cpc/')?'application/cpc+xml':'application/exchange+xml';
   if(pdf)headers.Accept='application/pdf';
   const send=()=>limited(provider||'public',ctx,async slot=>{
-    if(route==='epo')headers.Authorization='Bearer '+await epoAccessToken(ctx);
+    if(route==='epo')headers.Authorization='Bearer '+await noteTokenLimit(slot,epoAccessToken(ctx));
     const r=await request(validated.url,{method:validated.method,body:validated.method==='POST'?validated.body:undefined,headers:validated.method==='POST'?{'Content-Type':'application/json',...headers}:headers,timeout:pdf?GOVINFO_PDF_TIMEOUT_MS:ctx.config.requestTimeoutMs,maxBytes:pdf?MAX_ORIGINAL_BYTES+1:Math.min(maxBytes||6e6,6e6),fetchImpl:ctx.fetchImpl,allowHttpError:true,binary:pdf});
     r.rateLimit=rateNote(r,slot);
     return r;
@@ -214,7 +216,7 @@ function bigQueryProject(ctx){
   return projectId;
 }
 async function bigQueryCall(method,url,body,ctx){
-  const r=await limited('bigquery',ctx,async slot=>{const token=await googleAccessToken(ctx);const x=await request(url,{method,body,headers:{Authorization:'Bearer '+token,...(body?{'Content-Type':'application/json'}:{}),Accept:'application/json'},timeout:180000,maxBytes:2e6,fetchImpl:ctx.fetchImpl,allowHttpError:true});rateNote(x,slot);return x;});
+  const r=await limited('bigquery',ctx,async slot=>{const token=await noteTokenLimit(slot,googleAccessToken(ctx));const x=await request(url,{method,body,headers:{Authorization:'Bearer '+token,...(body?{'Content-Type':'application/json'}:{}),Accept:'application/json'},timeout:180000,maxBytes:2e6,fetchImpl:ctx.fetchImpl,allowHttpError:true});rateNote(x,slot);return x;});
   let parsed={};try{parsed=r.text?JSON.parse(r.text):{};}catch{parsed={};}
   return {statusCode:r.status,body:parsed};
 }

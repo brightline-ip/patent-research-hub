@@ -9,7 +9,7 @@
 //   exit    0 ok | 1 failed | 2 not_configured (key missing) | 64 bad request | 75 local_limit or local_busy (wait, then retry)
 // The keys come from this process's environment (Hub.cmd loads keys.env); they are never echoed. The command takes no module
 // path from the environment or the request: FRAME_GATEWAY_MODULE-style test overrides belong to callers, and are ignored here.
-// Retention: nothing is written to the Hub store; the only files touched are the limiter state in <dataDir>/limiter.
+// Retention: nothing is written to the Hub store; the only files touched are the limiter state in the per-user limiter folder.
 import {readConfig} from './config.mjs';
 import {callGateway} from './gateway.mjs';
 import {safeErrorMessage} from './security.mjs';

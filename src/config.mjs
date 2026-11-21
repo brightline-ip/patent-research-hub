@@ -16,7 +16,7 @@ export const configDefaults=Object.freeze({
   exportsDir:'',                            // empty = <install>/exports; PATENT_RESEARCH_EXPORTS_DIR overrides
   requestTimeoutMs:25000,
   directMinIntervalMs:{uspto:1000,epo:1000,govinfo:3600,courtlistener:1000,bigquery:1000,public:1000},
-  maxRequestsPerHour:{uspto:1800,epo:1800,govinfo:1800,courtlistener:1800,bigquery:1800}, // per provider and key, shared by every Hub process using this data folder; 0 = unlimited. Local safeguard, not the provider's quota
+  maxRequestsPerHour:{uspto:1800,epo:1800,govinfo:1800,courtlistener:1800,bigquery:1800}, // per provider and key, shared by every Hub process of this user; 0 = unlimited. Local safeguard, not the provider's quota
   limiterMaxWaitMs:1200000,                 // longest a call waits for its turn, the pacing gap or a 429 cooldown before failing with local_busy
   limiterStaleLockMs:30000,                 // a call lock not refreshed for this long (holder died or hung) is taken over; at least 5000
   limiterDir:'',                            // empty = one per-user folder (%LOCALAPPDATA%\PatentResearchHub\limiter, or $XDG_STATE_HOME/patent-research-hub/limiter); PATENT_RESEARCH_LIMITER_DIR overrides
@@ -48,8 +48,8 @@ export const configDefaults=Object.freeze({
 // takes turns at the same lock. Override with PATENT_RESEARCH_LIMITER_DIR or limiterDir only if you know all callers agree.
 export function limiterDir(config={},env=process.env){
   const explicit=env.PATENT_RESEARCH_LIMITER_DIR||process.env.PATENT_RESEARCH_LIMITER_DIR;
-  if(explicit)return path.resolve(explicit);
-  if(config.limiterDir)return path.resolve(installRoot,config.limiterDir);
+  if(explicit){if(!path.isAbsolute(explicit))throw new Error('PATENT_RESEARCH_LIMITER_DIR must be an absolute path');return path.resolve(explicit);}
+  if(config.limiterDir){if(typeof config.limiterDir!=='string'||!path.isAbsolute(config.limiterDir))throw new Error('config.json: limiterDir must be an absolute path (or empty for the per-user default)');return path.resolve(config.limiterDir);}
   if(process.platform==='win32')return path.join(process.env.LOCALAPPDATA||path.join(os.homedir(),'AppData','Local'),'PatentResearchHub','limiter');
   return path.join(process.env.XDG_STATE_HOME||path.join(os.homedir(),'.local','state'),'patent-research-hub','limiter');
 }
@@ -91,6 +91,8 @@ export function readConfig({env=process.env,file=configPath(env)}={}){
   if(!['direct','n8n'].includes(config.transport))throw new Error('transport must be "direct" or "n8n"');
   for(const key of ['directMinIntervalMs','maxRequestsPerHour'])if(local[key]!==undefined&&(!local[key]||typeof local[key]!=='object'||Array.isArray(local[key])))throw new Error(`config.json: ${key} must be an object with one number per provider`);
   effectiveLimits(config);
+  if(config.limiterDir!==''&&config.limiterDir!==undefined&&(typeof config.limiterDir!=='string'||!path.isAbsolute(config.limiterDir)))throw new Error('config.json: limiterDir must be an absolute path (or empty for the per-user default)');
+  limiterDir(config,env);
   return config;
 }
 

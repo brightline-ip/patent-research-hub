@@ -1,6 +1,7 @@
 // Offline tests for the direct transport. Every provider response is a mocked fetch; no network is used.
 // These tests establish request shapes and envelope parity with the n8n transport only. They do not show that the
 // direct transport works against the live providers.
+import './setup.mjs';  // temporary data and limiter folders, also when this file is run on its own
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

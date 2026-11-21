@@ -1,4 +1,5 @@
 // `cli.mjs gateway <route> --json-in`: real child processes, global fetch replaced by a scripted fake. No network.
+import './setup.mjs';  // temporary data and limiter folders, also when this file is run on its own
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -16,7 +17,7 @@ test('a JSON request on stdin returns the provider envelope on stdout with exit 
   assert.equal(r.stderr,'');
   assert.deepEqual(s.requests().map(x=>[x.method,x.url,x.key]),[['POST',searchRequest.url,'fixture-key-for-child-tests']]);
   assert.ok(!r.stdout.includes('fixture-key-for-child-tests'),'the key must never be echoed');
-  // The Hub store is not opened and nothing is retained: only the limiter folder exists in the data folder.
+  // The Hub store is not opened and nothing is retained: only the limiter folder exists (this test points it into the data folder).
   assert.deepEqual(fs.readdirSync(s.data),['limiter']);
 });
 

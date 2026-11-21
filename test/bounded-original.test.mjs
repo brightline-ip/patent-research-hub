@@ -1,3 +1,4 @@
+import './setup.mjs';  // temporary data and limiter folders, also when this file is run on its own
 import test from 'node:test';import assert from 'node:assert/strict';import {EventEmitter} from 'node:events';
 import bounded from '../src/bounded-download.cjs';
 const {downloadOriginal,downloadPtabOriginal,pinnedLookup,identity,ptabIdentity,publicIPv4}=bounded;

@@ -1,5 +1,6 @@
 // Cross-process limiter: unit tests plus tests with several real Node processes sharing one data folder. The provider is a
 // scripted fake fetch in each child (test/fixtures/mock-provider-preload.mjs); no network is used.
+import './setup.mjs';  // temporary data and limiter folders, also when this file is run on its own
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -221,20 +222,12 @@ test('if the lock is taken over while a caller waits for its turn, the caller qu
 });
 
 test('a lock file that can never be created (permission problem) fails with the real error, not "busy" after 20 minutes',async()=>{
-  const dir=scratchFolder(),real=fs.openSync;
-  fs.openSync=(p,flag,...rest)=>{if(String(p).endsWith('.lock')&&flag==='wx')throw Object.assign(new Error('denied'),{code:'EACCES'});return real(p,flag,...rest);};
+  const dir=scratchFolder(),real=fs.linkSync;
+  fs.linkSync=(src,dest)=>{if(String(dest).endsWith('.lock'))throw Object.assign(new Error('denied'),{code:'EACCES'});return real(src,dest);};
   try{
     const t0=Date.now(),e=await withProviderSlot({dir,provider:'uspto',key:'k',maxWaitMs:600000},async()=>1).then(()=>null,x=>x);
     assert.equal(e?.code,'EACCES');assert.ok(Date.now()-t0<30000);
-  }finally{fs.openSync=real;}
-});
-
-test('leftover .tmp and .stale.* files are swept, recent ones are not',async()=>{
-  const dir=scratchFolder();limiterSalt(dir);
-  const old=new Date(Date.now()-300000),mk=(n,when)=>{const p=path.join(dir,n);fs.writeFileSync(p,'x');fs.utimesSync(p,when,when);return p;};
-  const a=mk('x.json.abc123.tmp',old),b=mk('x.lock.stale.0123abcd',old),c=mk('y.json.def456.tmp',new Date()),d=mk('keep.json',old);
-  await withProviderSlot({dir,provider:'uspto',key:'k'},async()=>1);
-  assert.ok(!fs.existsSync(a)&&!fs.existsSync(b));assert.ok(fs.existsSync(c)&&fs.existsSync(d));
+  }finally{fs.linkSync=real;}
 });
 
 test('a stuck takeover file expires on its own and does not block a takeover for good',async()=>{
@@ -250,4 +243,112 @@ test('the Retry-After of a long ban is honoured in full (up to 24 hours), not cu
   await withProviderSlot({dir,provider:'uspto',key:'k'},async slot=>slot.rateLimited('7200'));
   const e=await withProviderSlot({dir,provider:'uspto',key:'k',maxWaitMs:1000,sleep:async ms=>waits.push(ms)},async()=>1).then(()=>null,x=>x);
   assert.equal(e?.code,'local_busy');assert.ok(e.retryAfterSeconds>7100,'reported wait '+e.retryAfterSeconds);
+});
+
+// ---- second review round ----
+
+test('a read of the lock file that merely fails once is not "lost": the heartbeat goes on and a 429 cooldown is still recorded',async()=>{
+  const dir=scratchFolder(),lock=lockPath(dir,'uspto','k'),real=fs.readFileSync;let armed=false,failed=0;
+  fs.readFileSync=(p,...a)=>{if(armed&&failed<1&&String(p)===lock){failed++;throw Object.assign(new Error('busy'),{code:'EBUSY'});}return real(p,...a);};
+  try{
+    await withProviderSlot({dir,provider:'uspto',key:'k',staleMs:5000},async slot=>{armed=true;await sleep(2300);slot.rateLimited('9');});   // the heartbeat runs at 1.7 s
+  }finally{fs.readFileSync=real;}
+  assert.equal(failed,1,'the injected read error should have hit the heartbeat');
+  const state=JSON.parse(fs.readFileSync(path.join(dir,limiterId('uspto','k',limiterSalt(dir))+'.json'),'utf8'));
+  assert.equal(state.consecutive429,1);assert.ok(state.cooldownUntil>Date.now());
+});
+
+test('a holder that lost its lock while waiting writes nothing: the successor\'s cooldown survives and the call is not sent or counted',async()=>{
+  const dir=scratchFolder(),id=limiterId('uspto','k',limiterSalt(dir)),lock=path.join(dir,id+'.lock'),state=path.join(dir,id+'.json');
+  fs.writeFileSync(state,JSON.stringify({requests:[],lastStartAt:0,cooldownUntil:Date.now()+200,consecutive429:1}));
+  const newer={requests:[],lastStartAt:5,cooldownUntil:Date.now()+3600000,consecutive429:4};
+  let seen=null,calls=0;
+  const e=await withProviderSlot({dir,provider:'uspto',key:'k',maxWaitMs:3000,sleep:async()=>{
+    fs.writeFileSync(lock,JSON.stringify({pid:process.pid,token:'successor',at:Date.now()}));fs.writeFileSync(state,JSON.stringify(newer));
+    setTimeout(()=>{seen=JSON.parse(fs.readFileSync(state,'utf8'));fs.unlinkSync(lock);},300);
+  }},async()=>{calls++;}).then(()=>null,x=>x);
+  assert.deepEqual(seen,newer,'the successor\'s state was overwritten');
+  assert.equal(calls,0);assert.equal(e?.code,'local_busy');            // queued again, and the 1 hour cooldown now applies
+});
+
+test('a failed takeover waits instead of spinning: the event loop stays free while a fresh takeover file blocks it',async()=>{
+  const dir=scratchFolder(),lock=lockPath(dir,'uspto','k'),old=new Date(Date.now()-120000);
+  fs.writeFileSync(lock,JSON.stringify({pid:999999,token:'dead',at:0}));fs.utimesSync(lock,old,old);
+  fs.writeFileSync(lock+'.takeover',JSON.stringify({pid:999999,token:'crashed',at:Date.now()}));      // left by a crashed process just now
+  let last=Date.now(),maxGap=0;const t=setInterval(()=>{const n=Date.now();maxGap=Math.max(maxGap,n-last);last=n;},10);
+  await withProviderSlot({dir,provider:'uspto',key:'k'},async()=>1);
+  clearInterval(t);
+  assert.ok(maxGap<500,'the event loop was blocked for '+maxGap+' ms');
+  // and with a deadline it gives up on time instead of looping forever
+  fs.writeFileSync(lock,JSON.stringify({pid:999999,token:'dead',at:0}));fs.utimesSync(lock,old,old);fs.writeFileSync(lock+'.takeover',JSON.stringify({pid:1,token:'x',at:Date.now()}));
+  const t0=Date.now(),e=await withProviderSlot({dir,provider:'uspto',key:'k',maxWaitMs:600},async()=>1).then(()=>null,x=>x);
+  assert.equal(e?.code,'local_busy');assert.ok(Date.now()-t0<2500);
+});
+
+test('the sweep touches only the Hub\'s own leftover names; other files with any extension stay',async()=>{
+  const dir=scratchFolder();limiterSalt(dir);
+  const old=new Date(Date.now()-300000),mk=(n,when=old)=>{const p=path.join(dir,n);fs.writeFileSync(p,'x');fs.utimesSync(p,when,when);return p;};
+  const own=[mk('uspto-0123456789abcdef.json.0123456789ab.tmp'),mk('uspto-0123456789abcdef.lock.stale.0123456789ab'),mk('epo-0123456789abcdef.lock.0123456789ab.tmp'),mk('salt.0123456789ab.tmp')];
+  const keep=[mk('quarterly-report.tmp'),mk('notes.stale.1'),mk('uspto-0123456789abcdef.json'),mk('x.json.abc123.tmp'),mk('uspto-0123456789abcdef.json.0123456789ab.tmp.bak'),mk('uspto-0123456789abcdef.json.fedcba987654.tmp',new Date())];
+  await withProviderSlot({dir,provider:'uspto',key:'k'},async()=>1);
+  assert.deepEqual(own.map(p=>fs.existsSync(p)),[false,false,false,false]);assert.deepEqual(keep.map(p=>fs.existsSync(p)),[true,true,true,true,true,true]);
+});
+
+test('a takeover file that is not ours is never deleted by a failed takeover that is not yet expired',async()=>{
+  const dir=scratchFolder(),lock=lockPath(dir,'uspto','k'),old=new Date(Date.now()-120000);
+  fs.writeFileSync(lock,JSON.stringify({pid:999999,token:'dead',at:0}));fs.utimesSync(lock,old,old);
+  const foreign=lock+'.takeover';fs.writeFileSync(foreign,JSON.stringify({pid:process.pid,token:'foreign',at:Date.now()}));
+  const e=await withProviderSlot({dir,provider:'uspto',key:'k',maxWaitMs:400},async()=>1).then(()=>null,x=>x);
+  assert.equal(e?.code,'local_busy');assert.equal(JSON.parse(fs.readFileSync(foreign,'utf8')).token,'foreign');
+});
+
+test('lock files are created whole: written under a temporary name and hard-linked into place, never visible empty',async()=>{
+  const dir=scratchFolder(),real=fs.linkSync,seen=[];
+  fs.linkSync=(src,dest)=>{if(String(dest).endsWith('.lock'))seen.push(JSON.parse(fs.readFileSync(src,'utf8')));return real(src,dest);};
+  try{await withProviderSlot({dir,provider:'uspto',key:'k'},async()=>1);}finally{fs.linkSync=real;}
+  assert.equal(seen.length,1);assert.equal(seen[0].pid,process.pid);assert.match(seen[0].token,/^[0-9a-f]{24}$/);
+});
+
+test('the lock is refreshed just before the call, so a long wait cannot leave it stale',async()=>{
+  const dir=scratchFolder(),id=limiterId('uspto','k',limiterSalt(dir)),lock=path.join(dir,id+'.lock');
+  fs.writeFileSync(path.join(dir,id+'.json'),JSON.stringify({requests:[],lastStartAt:0,cooldownUntil:Date.now()+900,consecutive429:1}));
+  let age=null;
+  await withProviderSlot({dir,provider:'uspto',key:'k',staleMs:30000},async()=>{age=Date.now()-fs.statSync(lock).mtimeMs;});   // heartbeat is every 5 s: only the pre-send refresh can make this small
+  assert.ok(age<400,'the lock was '+age+' ms old when the call started');
+});
+
+test('release retries a failed read of the lock file instead of leaving the lock behind',async()=>{
+  const dir=scratchFolder(),lock=lockPath(dir,'uspto','k'),real=fs.readFileSync;let armed=false,failed=0;
+  fs.readFileSync=(p,...a)=>{if(armed&&failed<2&&String(p)===lock){failed++;throw Object.assign(new Error('busy'),{code:'EBUSY'});}return real(p,...a);};
+  try{await withProviderSlot({dir,provider:'uspto',key:'k'},async()=>{armed=true;});}finally{fs.readFileSync=real;}
+  assert.ok(failed>=1);assert.ok(!fs.existsSync(lock),'the lock was left behind');
+});
+
+test('an empty or damaged salt file is a clear error that says to stop all Hub processes first; a good one is written atomically',()=>{
+  const dir=scratchFolder(),salt=path.join(dir,'salt');
+  fs.writeFileSync(salt,'');
+  assert.throws(()=>limiterSalt(path.join(dir)),/empty or damaged.*Stop all Hub processes/s);
+  const dir2=scratchFolder();fs.writeFileSync(path.join(dir2,'salt'),'not-hex-at-all');
+  assert.throws(()=>limiterSalt(dir2),/empty or damaged/);
+  const dir3=scratchFolder(),real=fs.linkSync,linked=[];fs.linkSync=(s,d)=>{linked.push(String(d));return real(s,d);};
+  try{assert.match(limiterSalt(dir3),/^[0-9a-f]{48}$/);}finally{fs.linkSync=real;}
+  assert.ok(linked.some(x=>x.endsWith('salt')),'the salt must be linked into place');
+});
+
+test('a zero-length state file becomes cautious defaults: no calls left this hour with a cap, a 5 s cooldown without one',async()=>{
+  const dir=scratchFolder(),state=path.join(dir,limiterId('uspto','k',limiterSalt(dir))+'.json');
+  fs.writeFileSync(state,'');
+  const e=await withProviderSlot({dir,provider:'uspto',key:'k',max:3},async()=>1).then(()=>null,x=>x);
+  assert.equal(e?.code,'local_limit');
+  fs.writeFileSync(state,'');const waits=[];
+  assert.equal(await withProviderSlot({dir,provider:'uspto',key:'k',max:0,sleep:async ms=>waits.push(ms)},async()=>'ok'),'ok');
+  assert.ok(waits.length===1&&waits[0]>4000&&waits[0]<=5000,'waits '+waits);
+  fs.writeFileSync(state,'  \n');assert.equal(await withProviderSlot({dir,provider:'uspto',key:'k',max:0,sleep:async()=>{}},async()=>'ok'),'ok');   // never blocks for good
+});
+
+test('the state is flushed to disk before it replaces the old one',async()=>{
+  const dir=scratchFolder(),real=fs.fsyncSync;let synced=0;
+  fs.fsyncSync=fd=>{synced++;return real(fd);};
+  try{await withProviderSlot({dir,provider:'uspto',key:'k'},async()=>1);}finally{fs.fsyncSync=real;}
+  assert.ok(synced>=2);
 });

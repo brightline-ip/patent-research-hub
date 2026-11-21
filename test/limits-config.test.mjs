@@ -1,10 +1,11 @@
 // Limit settings are validated loudly; the limiter folder is one per-user location; hardening of small lookups and parsing.
+import './setup.mjs';  // temporary data and limiter folders, also when this file is run on its own
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {spawn,spawnSync} from 'node:child_process';
-import {readConfig,effectiveLimits,configDefaults} from '../src/config.mjs';
+import {readConfig,effectiveLimits,limiterDir,configDefaults} from '../src/config.mjs';
 import {directGateway} from '../src/direct.mjs';
 import {selectOaAdapter,oaAdapters} from '../src/oa-adapter.mjs';
 import {childSetup,runChild,searchRequest,okSearch,scratchFolder,repo} from './helpers/gateway-child.mjs';
@@ -89,4 +90,22 @@ test('the gateway child stops by itself when the process that started it disappe
   p.kill('SIGKILL');
   let gone=false;for(let i=0;i<100&&!gone;i++){await new Promise(r=>setTimeout(r,200));gone=!alive(childPid);}
   assert.ok(gone,'the gateway child outlived its parent');
+});
+
+test('a relative limiter folder is refused (in the config file, the environment and the function)',()=>{
+  assert.throws(()=>reads({limiterDir:'limiter'}),/limiterDir must be an absolute path/);
+  assert.throws(()=>reads({limiterDir:42}),/limiterDir must be an absolute path/);
+  assert.throws(()=>limiterDir({},{PATENT_RESEARCH_LIMITER_DIR:'relative\\folder'}),/must be an absolute path/);
+  const here=path.resolve(scratchFolder('prh-abs-'));
+  assert.equal(reads({limiterDir:here}).limiterDir,here);assert.equal(limiterDir({limiterDir:here},{}),process.env.PATENT_RESEARCH_LIMITER_DIR?path.resolve(process.env.PATENT_RESEARCH_LIMITER_DIR):here);
+});
+
+test('an EPO token request answered with HTTP 429 starts the limiter cooldown like any other 429',async()=>{
+  const limiterFolder=scratchFolder('prh-epo-'),waits=[];
+  const o=fetchImpl=>({config:{directMinIntervalMs:{epo:0}},env:{EPO_OPS_CONSUMER_KEY:'fixture-consumer',EPO_OPS_CONSUMER_SECRET:'fixture-secret'},fetchImpl,limiterDir:limiterFolder,sleep:async ms=>waits.push(ms)});
+  const body={source:'epo',url:'https://ops.epo.org/3.2/rest-services/published-data/publication/epodoc/EP1000000.A1/biblio',method:'GET'};
+  const first=await directGateway('epo',body,o(async url=>String(url).includes('accesstoken')?new Response('slow down',{status:429,headers:{'retry-after':'40'}}):new Response('x',{status:200}))).then(()=>null,e=>e);
+  assert.match(first?.message,/token request failed \(HTTP 429\)/);
+  await directGateway('epo',body,o(async url=>String(url).includes('accesstoken')?new Response('{"access_token":"t","expires_in":"1200"}',{status:200}):new Response('<x/>',{status:200}))).catch(()=>{});
+  assert.ok(waits.length>=1&&waits[0]>35000,'the next call did not wait for the 429 cooldown: '+waits);
 });

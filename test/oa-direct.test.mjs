@@ -1,4 +1,5 @@
 // Offline tests: the direct oa-rejections route and the empty-search-result handling. Every provider answer is a mocked fetch.
+import './setup.mjs';  // temporary data and limiter folders, also when this file is run on its own
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

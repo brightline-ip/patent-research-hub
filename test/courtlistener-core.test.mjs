@@ -1,3 +1,4 @@
+import './setup.mjs';  // temporary data and limiter folders, also when this file is run on its own
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {buildLiveCourtListenerCore,VALIDATE_CODE,VALIDATE_NODE} from '../extras/n8n/scripts/build-live-courtlistener-core.mjs';
