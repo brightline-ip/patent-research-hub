@@ -42,8 +42,14 @@ has been run against the live USPTO API.
 
 - Extract the new zip and run `Setup.cmd` again over the existing install: it replaces the program folder and `Hub.cmd` and keeps
   your data folder, `config.json` and `keys.env` (Repair does not copy new program files). No setting needs to change.
-- `maxRequestsPerHour` now counts requests from all Hub processes that share the data folder, not just one process. A script that
-  stayed under the old per-process count may now hit `local_limit`. The default cap is now 1800 per hour per key (was 120 per process); lower it in `config.json` if you want to be more cautious.
+- `maxRequestsPerHour` now counts calls from all Hub processes of the same user, not just one process, and its default is now 1800 per
+  hour per key (it was 120 per process). A `config.json` written by 0.1.0 holds the old default, so when Setup updates a 0.1.x
+  installation it makes a **one-time change** to your settings file: every provider whose `maxRequestsPerHour` is exactly `120` is
+  raised to `1800`, and any other value (one you chose yourself, including `0`) is left alone. Before editing, Setup saves the previous
+  file beside it as `config.json.before-0.2.0` (readable only by your account; an existing backup is never overwritten), edits only
+  those numbers in place, and prints which providers it raised and how to lower them (edit `maxRequestsPerHour` in `config.json`). It
+  runs only when the installation being updated is older than 0.2.0, so Repair and later Setup runs never touch the file again, and
+  running it twice changes nothing. A source (non-installer) install is not edited: set the value yourself. To be more cautious, lower the value in `config.json`.
 - Calls with the same key now take turns. A second process no longer runs in parallel; it waits (up to `limiterMaxWaitMs`).
 - A 429 is returned to the caller instead of being retried by the Hub's GET retry; wait at least 5 seconds before any retry.
 - A new per-user folder `%LOCALAPPDATA%\PatentResearchHub\limiter` appears (not removed by the uninstaller). It holds counters, lock files and a random salt (names are a truncated hash of the key, never the key); it is safe to

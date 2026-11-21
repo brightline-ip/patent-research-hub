@@ -311,7 +311,20 @@ try {
         if ($check.googleBigQueryExecutionEnabled -ne $false -or $check.googleBigQueryDryRunEnabled -ne $true) { throw 'config.example.json does not keep BigQuery in dry-run mode; refusing to continue.' }
         Write-Utf8NoBom $paths.HubConfig $json
         Write-Good 'Settings file created (BigQuery stays in dry-run mode: byte estimates only, no data queries)'
-    } else { Write-Good 'Existing settings file kept' }
+    } else {
+        Write-Good 'Existing settings file kept'
+        # One-time update from 0.1.x: raise the old default hourly cap (120 per process) to the new shared default (1800).
+        $previous = $null
+        try { $previous = [string](([IO.File]::ReadAllText($paths.Config) | ConvertFrom-Json).version) } catch { }
+        try {
+            $migrated = Update-PrhLimitDefaults $paths.HubConfig $previous
+            if ($migrated.Changed.Count) {
+                Write-Good ('Hourly request limit raised from the 0.1.0 default of 120 to 1800 (now shared by every Hub process) for: ' + ($migrated.Changed -join ', '))
+                Write-Info 'Values you had set yourself were left alone. To lower it, edit maxRequestsPerHour in config.json.'
+                Write-Info ('Your previous settings file was saved as ' + $migrated.Backup)
+            }
+        } catch { Write-Warn2 "Could not update the hourly request limit in config.json ($($_.Exception.Message)); it keeps its old value. Edit maxRequestsPerHour yourself if you want 1800." }
+    }
 
     if (-not (Test-Path -LiteralPath $paths.Keys -PathType Leaf)) {
         # Restrict the file before anything goes into it.

@@ -68,7 +68,10 @@ node src/cli.mjs gateway <route> --json-in           (from source: keys from you
 - **Stopping it.** Killing `Hub.cmd` (`cmd.exe`) does not by itself kill its `node` child; kill the process tree (`taskkill /T /F
   /PID <pid>`). As a safety net the node child checks every 2 seconds that the process that started it still exists and exits
   if not. It watches only its direct parent: if your program dies while `cmd.exe` stays alive, the child runs to the end of its
-  call (bounded by the timeouts and `limiterMaxWaitMs`), releases its lock and exits.
+  call (bounded by the timeouts and `limiterMaxWaitMs`), releases its lock and exits. On the normal path the child releases its lock
+  itself when the call ends. A child that is killed (for example through its parent) cannot, so its lock file stays until the
+  dead-holder rule clears it: the next caller takes the lock over once the holder's process is gone and the file is about 2 seconds
+  old, so expect up to about 2 seconds of extra waiting after a kill.
 - **Waiting.** The command takes its turn behind other Hub processes using the same key (see "Provider quotas"), so a call can
   take longer than the provider's own response time. Set your own timeout above `limiterMaxWaitMs` plus the download time, or
   lower `limiterMaxWaitMs` in `config.json`.

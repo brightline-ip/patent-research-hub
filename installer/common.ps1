@@ -333,6 +333,42 @@ function Remove-OwnedTree([string]$Path, [string[]]$KeepLast) {
     return $false
 }
 
+# --- One-time settings migration (0.1.x -> 0.2.0) ------------------------------------------------------------------------
+# Hub 0.1.0 shipped maxRequestsPerHour = 120 for every provider, counted per process. From 0.2.0 the cap is shared by all Hub
+# processes and the default is 1800, so a settings file that still holds the old default would keep the tighter cap. When an
+# older installation is updated, every provider whose value is EXACTLY 120 is raised to 1800; any other value was chosen by the
+# user and is left alone. The previous file is first copied next to it as config.json.before-0.2.0 (readable only by the user;
+# an existing backup is never overwritten). Only the numbers are edited, in place, so the rest of the file is untouched.
+# $PreviousVersion is the version recorded by the installation being updated; 0.2.0 or newer is skipped, which makes the
+# migration run once. Running it again changes nothing, because no value is 120 any more.
+function Update-PrhLimitDefaults([string]$ConfigPath, [string]$PreviousVersion) {
+    $result = [ordered]@{ Changed = @(); Backup = $null; Skipped = $null }
+    $isOld = $true
+    if ($PreviousVersion) { try { $isOld = ([version]$PreviousVersion -lt [version]'0.2.0') } catch { $isOld = $true } }
+    if (-not $isOld) { $result.Skipped = 'installation already at 0.2.0 or newer'; return $result }
+    if (-not (Test-Path -LiteralPath $ConfigPath -PathType Leaf)) { $result.Skipped = 'no settings file'; return $result }
+    $plain = [IO.File]::ReadAllText($ConfigPath).TrimStart([char]0xFEFF)
+    try { $null = $plain | ConvertFrom-Json } catch { $result.Skipped = 'settings file is not valid JSON; left alone'; return $result }
+    $block = [regex]::Match($plain, '("maxRequestsPerHour"\s*:\s*\{)([^}]*)(\})')
+    if (-not $block.Success) { $result.Skipped = 'no maxRequestsPerHour block'; return $result }
+    $inner = $block.Groups[2].Value
+    foreach ($name in 'uspto', 'epo', 'govinfo', 'courtlistener', 'bigquery') {
+        $pattern = '("' + $name + '"\s*:\s*)120(?![0-9.eE])'
+        if ([regex]::IsMatch($inner, $pattern)) { $inner = [regex]::Replace($inner, $pattern, '${1}1800'); $result.Changed += $name }
+    }
+    if (-not $result.Changed.Count) { $result.Skipped = 'no provider has the old default'; return $result }
+    $updated = $plain.Substring(0, $block.Groups[2].Index) + $inner + $plain.Substring($block.Groups[2].Index + $block.Groups[2].Length)
+    try { $null = $updated | ConvertFrom-Json } catch { throw 'The edited settings would not be valid JSON; nothing was changed.' }
+    $backup = $ConfigPath + '.before-0.2.0'
+    if (-not (Test-Path -LiteralPath $backup)) {
+        Copy-Item -LiteralPath $ConfigPath -Destination $backup
+        Set-PrhUserOnly $backup
+    }
+    $result.Backup = $backup
+    Write-Utf8NoBom $ConfigPath $updated
+    return $result
+}
+
 # --- Hub.cmd ----------------------------------------------------------------------------------------------------------
 
 # Command-line wrapper with this installation's folders and keys file. Written as UTF-8 (no BOM) and run under code page
