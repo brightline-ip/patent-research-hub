@@ -5,8 +5,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import {spawnSync} from 'node:child_process';
-import {withProviderSlot,limiterId,limiterSalt,lockPath,parseRetryAfterMs,cooldownMs,rateLimitWaitSeconds,LocalLimitError,LimiterBusyError} from '../src/limiter.mjs';
+import {spawn,spawnSync} from 'node:child_process';
+import {withProviderSlot,limiterId,limiterSalt,lockPath,putBack,parseRetryAfterMs,cooldownMs,rateLimitWaitSeconds,LocalLimitError,LimiterBusyError} from '../src/limiter.mjs';
 import {childSetup,runChild,searchRequest,okSearch,scratchFolder} from './helpers/gateway-child.mjs';
 
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
@@ -206,8 +206,23 @@ test('a holder that has lost its lock neither overwrites newer state nor release
   assert.equal(r,'done');assert.deepEqual(JSON.parse(fs.readFileSync(state,'utf8')),newer);assert.equal(JSON.parse(fs.readFileSync(lock,'utf8')).token,'successor');
   const e=await withProviderSlot({dir,provider:'uspto',key:'k',maxWaitMs:200},async()=>1).then(()=>null,x=>x);assert.equal(e?.code,'local_busy');   // the successor's lock still stands
   fs.unlinkSync(lock);
-  const lost=await withProviderSlot({dir,provider:'uspto',key:'k'},async slot=>{fs.writeFileSync(lock,JSON.stringify({pid:process.pid,token:'successor2',at:Date.now()}));slot.rateLimited('5');}).then(()=>null,x=>x);
-  assert.equal(lost?.code,'local_state');assert.match(lost.message,/lock was lost/);fs.unlinkSync(lock);
+  // A 429 is recorded even if the lock was lost during the call: the holder queues again, the longer cooldown and the higher
+  // count win, and the caller still gets its own result.
+  const successor={requests:[],lastStartAt:0,cooldownUntil:Date.now()+7200000,consecutive429:3};
+  const out=await withProviderSlot({dir,provider:'uspto',key:'k'},async slot=>{
+    fs.writeFileSync(lock,JSON.stringify({pid:process.pid,token:'successor2',at:Date.now()}));fs.writeFileSync(state,JSON.stringify(successor));
+    setTimeout(()=>fs.unlinkSync(lock),300);slot.rateLimited('5');return 'the original result';
+  });
+  assert.equal(out,'the original result');
+  const after=JSON.parse(fs.readFileSync(state,'utf8'));
+  assert.equal(after.consecutive429,4);assert.equal(after.cooldownUntil,successor.cooldownUntil,'the longer cooldown must win');
+  assert.ok(!fs.existsSync(lock));
+  // and when the new 429 is the longer one it wins instead
+  fs.writeFileSync(state,JSON.stringify({requests:[],lastStartAt:0,cooldownUntil:0,consecutive429:0}));
+  const out2=await withProviderSlot({dir,provider:'uspto',key:'k',sleep:async()=>{}},async slot=>{
+    fs.writeFileSync(lock,JSON.stringify({pid:process.pid,token:'successor3',at:Date.now()}));setTimeout(()=>fs.unlinkSync(lock),300);slot.rateLimited('86400');return 'again';
+  });
+  assert.equal(out2,'again');assert.ok(JSON.parse(fs.readFileSync(state,'utf8')).cooldownUntil>Date.now()+80000000);
 });
 
 test('if the lock is taken over while a caller waits for its turn, the caller queues again instead of sending',async()=>{
@@ -351,4 +366,75 @@ test('the state is flushed to disk before it replaces the old one',async()=>{
   fs.fsyncSync=fd=>{synced++;return real(fd);};
   try{await withProviderSlot({dir,provider:'uspto',key:'k'},async()=>1);}finally{fs.fsyncSync=real;}
   assert.ok(synced>=2);
+});
+
+// ---- final review round ----
+
+test('a zero-length state file with a cap starts the hour once and then runs down: it is saved at once and never re-armed',async()=>{
+  const dir=scratchFolder(),opts={dir,provider:'uspto',key:'k',max:3},state=path.join(dir,limiterId('uspto','k',limiterSalt(dir))+'.json');
+  fs.writeFileSync(state,'');
+  const first=await withProviderSlot(opts,async()=>1).then(()=>null,x=>x);
+  assert.equal(first?.code,'local_limit');
+  const saved=JSON.parse(fs.readFileSync(state,'utf8'));assert.equal(saved.requests.length,3,'the cautious state must be on disk, not an empty file');
+  await sleep(2100);
+  const second=await withProviderSlot(opts,async()=>1).then(()=>null,x=>x);
+  assert.equal(second?.code,'local_limit');assert.ok(second.retryAfterSeconds<first.retryAfterSeconds,`wait did not shrink: ${first.retryAfterSeconds} then ${second.retryAfterSeconds}`);
+  assert.deepEqual(JSON.parse(fs.readFileSync(state,'utf8')).requests,saved.requests,'the hour must not restart');
+});
+
+test('file systems that cannot make hard links (EPERM, EISDIR, EINVAL, UNKNOWN) still get whole lock and salt files',async()=>{
+  for(const code of ['EPERM','EISDIR','EINVAL','UNKNOWN','ENOTSUP']){
+    const dir=scratchFolder(),real=fs.linkSync;
+    fs.linkSync=()=>{throw Object.assign(new Error('no links'),{code});};
+    try{
+      assert.equal(await withProviderSlot({dir,provider:'uspto',key:'k'},async()=>code),code);
+      assert.match(limiterSalt(dir),/^[0-9a-f]{48}$/);assert.ok(!fs.existsSync(lockPath(dir,'uspto','k')));
+    }finally{fs.linkSync=real;}
+  }
+});
+
+test('a file moved aside is put back by rename when a hard link is impossible, and never deleted instead of restored',()=>{
+  const dir=scratchFolder(),file=path.join(dir,'x.lock'),aside=path.join(dir,'x.lock.stale.0123456789ab'),real=fs.linkSync;
+  fs.linkSync=()=>{throw Object.assign(new Error('no links'),{code:'EPERM'});};
+  try{
+    fs.writeFileSync(aside,'live lock');putBack(aside,file);
+    assert.equal(fs.readFileSync(file,'utf8'),'live lock');assert.ok(!fs.existsSync(aside));
+    fs.writeFileSync(aside,'moved');putBack(aside,file);                          // the name was taken again meanwhile: keep the newcomer
+    assert.equal(fs.readFileSync(file,'utf8'),'live lock');assert.ok(!fs.existsSync(aside));
+  }finally{fs.linkSync=real;}
+});
+
+test('the salt file is flushed to disk before it is linked into place',()=>{
+  const dir=scratchFolder(),real=fs.fsyncSync;let synced=0;fs.fsyncSync=fd=>{synced++;return real(fd);};
+  try{limiterSalt(dir);}finally{fs.fsyncSync=real;}
+  assert.ok(synced>=1);
+});
+
+test('a holder with a live process gets one more heartbeat interval before its lock is taken over',async()=>{
+  const dir=scratchFolder(),lock=lockPath(dir,'uspto','k');
+  const live=spawn(process.execPath,['-e','setTimeout(()=>{},60000)'],{stdio:'ignore',windowsHide:true});
+  try{
+    const aged=ms=>{fs.writeFileSync(lock,JSON.stringify({pid:live.pid,token:'live',at:0}));const t=new Date(Date.now()-ms);fs.utimesSync(lock,t,t);};
+    aged(5600);                                                                     // staleMs 5000 + 600: inside the extra interval (1666 ms)
+    const early=await withProviderSlot({dir,provider:'uspto',key:'k',staleMs:5000,maxWaitMs:300},async()=>1).then(()=>null,x=>x);
+    assert.equal(early?.code,'local_busy');
+    aged(7200);                                                                     // beyond staleMs plus the interval
+    assert.equal(await withProviderSlot({dir,provider:'uspto',key:'k',staleMs:5000,maxWaitMs:3000},async()=>'taken'),'taken');
+  }finally{live.kill();}
+});
+
+test('a lock that turns out to be live after it was moved aside is put back, not taken',async()=>{
+  const dir=scratchFolder(),lock=lockPath(dir,'uspto','k'),real=fs.renameSync;
+  const old=new Date(Date.now()-120000);
+  fs.writeFileSync(lock,JSON.stringify({pid:999999,token:'T1',at:0}));fs.utimesSync(lock,old,old);
+  let swapped=false;
+  fs.renameSync=(a,b)=>{                                                            // between the stale check and the rename the holder came back
+    if(!swapped&&String(a)===lock&&String(b).includes('.lock.stale.')){swapped=true;const now=new Date();fs.utimesSync(lock,now,now);}
+    return real(a,b);
+  };
+  try{
+    const e=await withProviderSlot({dir,provider:'uspto',key:'k',maxWaitMs:400,staleMs:30000},async()=>1).then(()=>null,x=>x);
+    assert.equal(e?.code,'local_busy');assert.ok(swapped);
+    assert.equal(JSON.parse(fs.readFileSync(lock,'utf8')).token,'T1','the live holder\'s lock must still be there');
+  }finally{fs.renameSync=real;}
 });

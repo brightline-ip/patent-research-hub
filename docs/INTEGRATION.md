@@ -133,7 +133,7 @@ turn), a minimum spacing between request starts (`directMinIntervalMs`), a cap o
 `maxRequestsPerHour`, default 1800 for USPTO, EPO, GovInfo, CourtListener and BigQuery; `0` disables it) and a cooldown after
 HTTP 429 (at least 5 seconds, as long as `Retry-After` says if longer, up to 24 hours; doubling on repeats, the doubling capped at 15 minutes). Only an exhausted
 hourly cap raises an error, with the code `local_limit` (property `retryAfterSeconds`, `limit`) and the wait time in the
-message; waiting longer than `limiterMaxWaitMs` raises `local_busy`. The README section "USPTO key rules and the Hub's
+message; waiting longer than `limiterMaxWaitMs` raises `local_busy`, and an unreadable or damaged limiter state file raises `local_state` (the message names the file to delete). The README section "USPTO key rules and the Hub's
 limits" lists the portal's published rules. These limits are not your provider's quota: USPTO sets per-key limits, EPO OPS has a weekly fair-use quota,
 and api.data.gov keys (GovInfo) default to about 1,000 requests per hour. Check each provider's current terms
 (`research_sources` / `doctor` print the registration and terms links).

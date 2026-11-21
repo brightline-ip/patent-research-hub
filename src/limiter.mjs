@@ -68,19 +68,23 @@ export function cooldownMs(consecutive,retryAfterMs=0){
 }
 export function rateLimitWaitSeconds(retryAfterHeader,now=Date.now()){return Math.ceil(cooldownMs(1,parseRetryAfterMs(retryAfterHeader,now))/1000);}
 
-const NOT_SUPPORTED=['ENOTSUP','ENOSYS','EXDEV','EOPNOTSUPP'];
+const NOT_SUPPORTED=['ENOTSUP','ENOSYS','EXDEV','EOPNOTSUPP','EISDIR','EINVAL','UNKNOWN'];
 const LOCKED_CODES=['EEXIST','EPERM','EACCES','EBUSY'];
 // Creates `file` with `content` so that it is never visible empty or half written: the content goes to a temporary name first
 // and is then hard-linked into place (link fails if the target exists). A file system without hard links falls back to
 // exclusive create. true: created. false: the file exists. Otherwise the error (EPERM/EACCES/EBUSY).
 function createFileAtomically(file,content){
   const tmp=`${file}.${hex(6)}.tmp`;
-  try{fs.writeFileSync(tmp,content,{flag:'wx',mode:0o600});}
-  catch(e){if(LOCKED_CODES.includes(e.code))return e;throw e;}
+  try{
+    const fd=fs.openSync(tmp,'wx',0o600);
+    try{fs.writeSync(fd,content);fs.fsyncSync(fd);}finally{fs.closeSync(fd);}      // on disk before it becomes visible
+  }catch(e){try{fs.rmSync(tmp,{force:true});}catch{}if(LOCKED_CODES.includes(e.code))return e;throw e;}
   try{fs.linkSync(tmp,file);return true;}
   catch(e){
     if(e.code==='EEXIST')return false;
-    if(NOT_SUPPORTED.includes(e.code)){
+    // No hard links here (FAT/exFAT, some network and virtual file systems report EPERM, EISDIR, EINVAL or UNKNOWN):
+    // fall back to exclusive create. EPERM with an existing target is a real refusal and is handled below.
+    if(NOT_SUPPORTED.includes(e.code)||(e.code==='EPERM'&&!fs.existsSync(file))){
       try{const fd=fs.openSync(file,'wx');try{fs.writeSync(fd,content);}finally{fs.closeSync(fd);}return true;}
       catch(x){if(x.code==='EEXIST')return false;if(LOCKED_CODES.includes(x.code))return x;throw x;}
     }
@@ -120,12 +124,22 @@ function tokenState(file,token){
   return j&&j.token===token?'mine':'other';
 }
 function readLockInfo(file){try{const j=JSON.parse(fs.readFileSync(file,'utf8'));return {pid:j.pid,token:j.token??null};}catch{return {pid:null,token:null};}}
+const heartbeatMs=staleMs=>Math.max(200,Math.min(5000,Math.floor(staleMs/3)));
 function staleness(file,staleMs){
   let st;try{st=fs.statSync(file);}catch{return {gone:true};}
   const age=Date.now()-st.mtimeMs,{pid,token}=readLockInfo(file);
-  if(age>staleMs)return {stale:true,st,token};
+  // A holder whose process is alive gets one more heartbeat interval before it is declared stale (a late heartbeat is not death).
+  const grace=Number.isInteger(pid)&&pid!==process.pid&&alive(pid)?heartbeatMs(staleMs):0;
+  if(age>staleMs+grace)return {stale:true,st,token};
   if(age>2000&&Number.isInteger(pid)&&pid!==process.pid&&!alive(pid))return {stale:true,st,token};
   return {stale:false};
+}
+// Puts a file we moved aside back where it was without ever deleting it instead: hard link if possible, else rename. If the
+// original name is taken again meanwhile, the moved file is the stale one and is dropped.
+export function putBack(aside,file){
+  try{fs.linkSync(aside,file);fs.rmSync(aside,{force:true});return;}
+  catch(e){if(e.code==='EEXIST'){try{fs.rmSync(aside,{force:true});}catch{}return;}}
+  try{if(fs.existsSync(file))fs.rmSync(aside,{force:true});else fs.renameSync(aside,file);}catch{}
 }
 // An expired takeover file (its owner crashed) is renamed to a unique name, checked to really be old, then deleted; a fresh one
 // that we moved by mistake is put back.
@@ -134,7 +148,7 @@ function expireTakeover(mutex){
     if(Date.now()-fs.statSync(mutex).mtimeMs<=TAKEOVER_EXPIRY_MS)return;
     const aside=`${mutex}.${hex(6)}.stale`;
     fs.renameSync(mutex,aside);
-    if(Date.now()-fs.statSync(aside).mtimeMs<=TAKEOVER_EXPIRY_MS){try{fs.linkSync(aside,mutex);}catch{}}
+    if(Date.now()-fs.statSync(aside).mtimeMs<=TAKEOVER_EXPIRY_MS){putBack(aside,mutex);return;}
     fs.rmSync(aside,{force:true});
   }catch{}
 }
@@ -150,9 +164,8 @@ function takeOver(file,token,staleMs){
       if(!s.stale)return false;                                            // refreshed or replaced meanwhile
       const aside=`${file}.stale.${hex(6)}`;
       try{fs.renameSync(file,aside);}catch(e){if(e.code!=='ENOENT')return false;}
-      if(readLockInfo(aside).token!==s.token){                             // we moved a live lock after all: put it back
-        try{fs.linkSync(aside,file);}catch{}
-        try{fs.rmSync(aside,{force:true});}catch{}
+      if(readLockInfo(aside).token!==s.token||!staleness(aside,staleMs).stale){   // we moved a live lock after all: put it back
+        putBack(aside,file);
         return false;
       }
       try{fs.rmSync(aside,{force:true});}catch{}
@@ -203,7 +216,7 @@ async function acquire(file,{staleMs,deadline,dir}){
       if(s==='other'){lock.lost=true;clearInterval(beat);return;}
       const now=new Date();fs.utimesSync(file,now,now);              // also when the read was unknown: keep the lock fresh
     }catch{}
-  },Math.max(200,Math.min(5000,Math.floor(staleMs/3))));
+  },heartbeatMs(staleMs));
   beat.unref?.();
   // Refresh the lock and confirm it is still ours. True only when it certainly is.
   lock.confirm=()=>{
@@ -228,7 +241,8 @@ async function acquire(file,{staleMs,deadline,dir}){
 const emptyState=()=>({requests:[],lastStartAt:0,cooldownUntil:0,consecutive429:0});
 // Only a missing file is an empty state. Other read errors are retried, then reported; a damaged file is reported, not ignored.
 // A zero-length file (a write that did not reach the disk before a crash) is not trusted either way: it becomes the cautious
-// state "no calls left this hour and a 5 s cooldown" (see `reset`), so it neither blocks the key forever nor opens it wide.
+// state "no calls left this hour and a 5 s cooldown" (see `reset`). That state is saved at once, so the hour starts once and
+// then runs down: the key is neither blocked forever nor opened wide.
 function loadState(file){
   let raw;
   for(let i=0;;i++){
@@ -260,16 +274,31 @@ export async function withProviderSlot({dir,provider,key,max=0,minIntervalMs=0,s
   const id=limiterId(provider,key,limiterSalt(dir)),outer=held.getStore();
   if(outer?.has(id))return fn(passthroughSlot);
   const begun=Date.now(),deadline=begun+maxWaitMs;
+  const stateFile0=path.join(dir,id+'.json'),lockFile=path.join(dir,id+'.lock');
+  // A 429 must never be lost because the lock was taken over during the call: wait for the lock again, add the 429 to whatever
+  // state is there now (the longer cooldown wins, the count goes up) and let the caller have its original result.
+  const recordLate=async retryAfterMs=>{
+    const again=await acquire(lockFile,{staleMs,deadline:Date.now()+Math.min(Math.max(maxWaitMs,60000),300000),dir});
+    if(!again)throw new LimiterStateError('The lock was lost during the call and could not be taken again, so the HTTP 429 cooldown could not be recorded.');
+    try{
+      const st=loadState(stateFile0);st.reset=false;
+      st.consecutive429+=1;st.cooldownUntil=Math.max(st.cooldownUntil,Date.now()+cooldownMs(st.consecutive429,retryAfterMs));
+      if(!again.confirm())throw new LimiterStateError('The lock was lost again while recording the HTTP 429 cooldown.');
+      saveState(stateFile0,st);
+    }finally{again.release();}
+  };
   for(;;){
-    const lock=await acquire(path.join(dir,id+'.lock'),{staleMs,deadline,dir});
+    const lock=await acquire(lockFile,{staleMs,deadline,dir});
     if(!lock)throw new LimiterBusyError(provider,Date.now()-begun,'another process is using it');
     try{
       const outcome=await held.run(new Set([...(outer||[]),id]),async()=>{
         const stateFile=path.join(dir,id+'.json'),state=loadState(stateFile);
         let now=Date.now();
-        if(state.reset){                                          // zero-length state file: cautious defaults
+        if(state.reset){                                          // zero-length state file: cautious defaults, saved at once
           if(max>0)state.requests=Array(max).fill(now);
           state.cooldownUntil=Math.max(state.cooldownUntil,now+MIN_429_WAIT_MS);
+          if(!lock.confirm())return LOST;
+          saveState(stateFile,state);state.reset=false;           // so a refusal below does not leave the file empty
         }
         state.requests=state.requests.filter(t=>now-t<HOUR_MS);
         if(max>0&&state.requests.length>=max)throw new LocalLimitError(provider,max,state.requests[0]+HOUR_MS-now);
@@ -285,14 +314,17 @@ export async function withProviderSlot({dir,provider,key,max=0,minIntervalMs=0,s
         if(!lock.confirm())return LOST;                           // lost the lock while waiting: write nothing, queue again
         saveState(stateFile,state);
         const slot={rl:null,rateLimited(header){this.rl=parseRetryAfterMs(header);}};
-        let threw=true;
-        try{const result=await fn(slot);threw=false;return {result};}
-        finally{
-          if(slot.rl!==null){state.consecutive429+=1;state.cooldownUntil=Date.now()+cooldownMs(state.consecutive429,slot.rl);}
-          else if(!threw)state.consecutive429=0;
+        let result,failure,threw=true;
+        try{result=await fn(slot);threw=false;}catch(e){failure=e;}
+        if(slot.rl!==null){
+          if(lock.confirm()){state.consecutive429+=1;state.cooldownUntil=Date.now()+cooldownMs(state.consecutive429,slot.rl);saveState(stateFile,state);}
+          else await recordLate(slot.rl);                          // lock lost during the call: queue again and record the 429 anyway
+        }else{
+          if(!threw)state.consecutive429=0;
           if(lock.confirm())saveState(stateFile,state);            // never overwrite newer state after losing the lock
-          else if(slot.rl!==null)throw new LimiterStateError('The lock was lost during the call, so the HTTP 429 cooldown could not be recorded safely.');
         }
+        if(threw)throw failure;
+        return {result};
       });
       if(outcome!==LOST)return outcome.result;
     }finally{lock.release();}

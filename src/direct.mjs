@@ -81,6 +81,7 @@ function remember(key,token,expiresIn,ctx){
 const noteTokenLimit=(slot,promise)=>promise.catch(e=>{if(e?.status===429)slot.rateLimited(e.retryAfter);throw e;});
 async function tokenRequest(url,form,headers,ctx){
   const r=await request(url,{method:'POST',body:new URLSearchParams(form).toString(),headers:{'Content-Type':'application/x-www-form-urlencoded',Accept:'application/json',...headers},timeout:ctx.config.requestTimeoutMs,maxBytes:65536,fetchImpl:ctx.fetchImpl,allowHttpError:true});
+  if(r.status===429){const seconds=rateLimitWaitSeconds(r.retryAfter);throw Object.assign(new Error(`Provider token request rate limited (HTTP 429); wait at least ${seconds} s before retrying`),{status:429,retryAfter:r.retryAfter,retryAfterSeconds:seconds});}
   if(r.status!==200)throw Object.assign(new Error(`Provider token request failed (HTTP ${r.status}); check the credential`),{status:r.status,retryAfter:r.retryAfter});
   try{return JSON.parse(r.text);}catch{throw new Error('Provider token response was not JSON');}
 }

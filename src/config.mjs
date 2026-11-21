@@ -46,10 +46,13 @@ export const configDefaults=Object.freeze({
 // The cross-process limiter keeps its state in ONE per-user folder that does not depend on the data folder, the install folder or
 // the configuration file, so every Hub process of this user (MCP server, CLI, gateway children, tools that import the Hub)
 // takes turns at the same lock. Override with PATENT_RESEARCH_LIMITER_DIR or limiterDir only if you know all callers agree.
+// An absolute path; on Windows it must start with a drive letter (a rooted path without one, such as \\folder, or a network
+// UNC path is refused: lock timing depends on every machine's clock, and a drive-less path changes meaning with the drive).
+const absoluteFolder=value=>typeof value==='string'&&path.isAbsolute(value)&&(process.platform!=='win32'||/^[A-Za-z]:[\\/]/.test(value));
 export function limiterDir(config={},env=process.env){
   const explicit=env.PATENT_RESEARCH_LIMITER_DIR||process.env.PATENT_RESEARCH_LIMITER_DIR;
-  if(explicit){if(!path.isAbsolute(explicit))throw new Error('PATENT_RESEARCH_LIMITER_DIR must be an absolute path');return path.resolve(explicit);}
-  if(config.limiterDir){if(typeof config.limiterDir!=='string'||!path.isAbsolute(config.limiterDir))throw new Error('config.json: limiterDir must be an absolute path (or empty for the per-user default)');return path.resolve(config.limiterDir);}
+  if(explicit){if(!absoluteFolder(explicit))throw new Error('PATENT_RESEARCH_LIMITER_DIR must be an absolute path (on Windows with a drive letter; network paths are not accepted)');return path.resolve(explicit);}
+  if(config.limiterDir){if(!absoluteFolder(config.limiterDir))throw new Error('config.json: limiterDir must be an absolute path (on Windows with a drive letter; network paths are not accepted), or empty for the per-user default');return path.resolve(config.limiterDir);}
   if(process.platform==='win32')return path.join(process.env.LOCALAPPDATA||path.join(os.homedir(),'AppData','Local'),'PatentResearchHub','limiter');
   return path.join(process.env.XDG_STATE_HOME||path.join(os.homedir(),'.local','state'),'patent-research-hub','limiter');
 }
@@ -91,7 +94,7 @@ export function readConfig({env=process.env,file=configPath(env)}={}){
   if(!['direct','n8n'].includes(config.transport))throw new Error('transport must be "direct" or "n8n"');
   for(const key of ['directMinIntervalMs','maxRequestsPerHour'])if(local[key]!==undefined&&(!local[key]||typeof local[key]!=='object'||Array.isArray(local[key])))throw new Error(`config.json: ${key} must be an object with one number per provider`);
   effectiveLimits(config);
-  if(config.limiterDir!==''&&config.limiterDir!==undefined&&(typeof config.limiterDir!=='string'||!path.isAbsolute(config.limiterDir)))throw new Error('config.json: limiterDir must be an absolute path (or empty for the per-user default)');
+  if(config.limiterDir!==''&&config.limiterDir!==undefined&&!absoluteFolder(config.limiterDir))throw new Error('config.json: limiterDir must be an absolute path (on Windows with a drive letter; network paths are not accepted), or empty for the per-user default');
   limiterDir(config,env);
   return config;
 }

@@ -96,6 +96,13 @@ test('a relative limiter folder is refused (in the config file, the environment 
   assert.throws(()=>reads({limiterDir:'limiter'}),/limiterDir must be an absolute path/);
   assert.throws(()=>reads({limiterDir:42}),/limiterDir must be an absolute path/);
   assert.throws(()=>limiterDir({},{PATENT_RESEARCH_LIMITER_DIR:'relative\\folder'}),/must be an absolute path/);
+  // The config.limiterDir branch of limiterDir() itself, with the environment variable out of the way
+  const saved=process.env.PATENT_RESEARCH_LIMITER_DIR;delete process.env.PATENT_RESEARCH_LIMITER_DIR;
+  try{
+    assert.throws(()=>limiterDir({limiterDir:'limiter'},{}),/limiterDir must be an absolute path/);
+    assert.throws(()=>limiterDir({limiterDir:42},{}),/limiterDir must be an absolute path/);
+    const inside=path.resolve(scratchFolder('prh-cfgdir-'));assert.equal(limiterDir({limiterDir:inside},{}),inside);
+  }finally{process.env.PATENT_RESEARCH_LIMITER_DIR=saved;}
   const here=path.resolve(scratchFolder('prh-abs-'));
   assert.equal(reads({limiterDir:here}).limiterDir,here);assert.equal(limiterDir({limiterDir:here},{}),process.env.PATENT_RESEARCH_LIMITER_DIR?path.resolve(process.env.PATENT_RESEARCH_LIMITER_DIR):here);
 });
@@ -105,7 +112,16 @@ test('an EPO token request answered with HTTP 429 starts the limiter cooldown li
   const o=fetchImpl=>({config:{directMinIntervalMs:{epo:0}},env:{EPO_OPS_CONSUMER_KEY:'fixture-consumer',EPO_OPS_CONSUMER_SECRET:'fixture-secret'},fetchImpl,limiterDir:limiterFolder,sleep:async ms=>waits.push(ms)});
   const body={source:'epo',url:'https://ops.epo.org/3.2/rest-services/published-data/publication/epodoc/EP1000000.A1/biblio',method:'GET'};
   const first=await directGateway('epo',body,o(async url=>String(url).includes('accesstoken')?new Response('slow down',{status:429,headers:{'retry-after':'40'}}):new Response('x',{status:200}))).then(()=>null,e=>e);
-  assert.match(first?.message,/token request failed \(HTTP 429\)/);
+  assert.match(first?.message,/rate limited \(HTTP 429\); wait at least 40 s/);assert.equal(first.retryAfterSeconds,40);
   await directGateway('epo',body,o(async url=>String(url).includes('accesstoken')?new Response('{"access_token":"t","expires_in":"1200"}',{status:200}):new Response('<x/>',{status:200}))).catch(()=>{});
   assert.ok(waits.length>=1&&waits[0]>35000,'the next call did not wait for the 429 cooldown: '+waits);
+});
+
+test('on Windows the limiter folder needs a drive letter: rooted paths without one and network paths are refused',{skip:process.platform!=='win32'&&'Windows path rules'},()=>{
+  for(const bad of ['\folder','\\server\share\limiter','C:folder','/folder'])
+    assert.throws(()=>limiterDir({},{PATENT_RESEARCH_LIMITER_DIR:bad}),/absolute path.*drive letter/,bad);
+  const saved=process.env.PATENT_RESEARCH_LIMITER_DIR;delete process.env.PATENT_RESEARCH_LIMITER_DIR;
+  try{for(const bad of ['\folder','\\server\share\limiter'])assert.throws(()=>limiterDir({limiterDir:bad},{}),/drive letter/,bad);}finally{process.env.PATENT_RESEARCH_LIMITER_DIR=saved;}
+  assert.throws(()=>reads({limiterDir:'\\server\share\limiter'}),/drive letter/);
+  assert.equal(limiterDir({},{PATENT_RESEARCH_LIMITER_DIR:'D:/limiter'}),path.resolve('D:/limiter'));
 });
